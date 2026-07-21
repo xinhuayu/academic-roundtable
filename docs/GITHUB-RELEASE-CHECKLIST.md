@@ -12,7 +12,7 @@
 - [ ] Confirm `.env.local` is ignored and absent from `git status` and `git ls-files`.
 - [ ] Scan the full candidate commit and history for secrets.
 - [ ] Confirm `data/`, uploads, exports, logs, dependencies, caches, and build artifacts are untracked.
-- [ ] Run 25 backend tests and the frontend production build from the clean copy.
+- [ ] Run 33 backend tests, the frontend test suite, and the frontend production build from the clean copy.
 - [ ] Review README limitations and security warnings.
 - [ ] Configure private vulnerability reporting before inviting outside users.
 

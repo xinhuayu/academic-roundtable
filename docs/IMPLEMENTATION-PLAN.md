@@ -95,6 +95,19 @@ The professional agent-system review implemented the highest-priority controls b
 
 The prioritized rationale and postponed work are recorded in [CRITICAL-REVIEW.md](CRITICAL-REVIEW.md).
 
+## Multi-provider reasoning and latency increment — complete
+
+- Momo and Bobby may use separate OpenAI-compatible providers; the environment template now demonstrates OpenAI for Momo and Gemini 3.1 Flash-Lite for Bobby.
+- The Chat Completions adapter forwards `reasoning_effort`, matching the existing Responses behavior.
+- Live turns remain low-reasoning and concise, while source/topic/conversation/final digests and learning evaluation use medium reasoning.
+- Per-provider connection, first-token, stream-idle, and total-turn limits are configurable without code changes.
+- Background digest sections and complete synthesis jobs have separate, longer configurable deadlines.
+- Regression coverage protects reasoning propagation and timeout environment parsing.
+- Host-invitation detection requires a complete final question to Sam, preventing ordinary direct address from prematurely ending a segment.
+- Roles are deliberately asymmetric: Bobby develops the strongest defensible case; Momo critiques it and serves as the default OpenAI-backed digest provider.
+- Participant-specific live budgets allocate 800 tokens to Momo and 1,400 to Bobby while the prompt constrains visible prose to roughly 60–110 words.
+- Chat Completions finish reasons are inspected; length-limited fragments are retained as interrupted and cannot silently hand the floor to the other AI.
+
 ## Next agile increments
 
 ### Increment A — learning-quality pilot
@@ -179,7 +192,8 @@ Potential scope:
 
 | Work type | Output budget | Execution |
 |---|---:|---|
-| Live AI contribution | 350 tokens by default; prompt targets 60–110 words | streamed and interactive |
+| Live Momo contribution | 800 completion tokens; prompt targets 60–110 words | critical response plus sufficient OpenAI reasoning room |
+| Live Bobby contribution | 1,400 completion tokens; prompt targets 60–110 words | case development plus Gemini hidden-reasoning room |
 | Conversation digest/recap | at least 2,000; default 4,000 | background or requested foreground |
 | Topic digest | at least 3,000; default 6,000 | background |
 | Source section/synthesis | at least 4,000; default 8,000 | background |

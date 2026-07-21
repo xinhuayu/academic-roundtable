@@ -34,6 +34,13 @@ def env_int(name: str, default: int) -> int:
         return default
 
 
+def env_float(name: str, default: float, minimum: float = 1.0) -> float:
+    try:
+        return max(minimum, float(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
 @dataclass(frozen=True)
 class ProviderConfig:
     participant: str
@@ -74,6 +81,10 @@ class Settings:
     source_digest_max_output_tokens: int
     momo: ProviderConfig
     bobby: ProviderConfig
+    digest_section_timeout: float = 300.0
+    digest_job_timeout: float = 900.0
+    momo_live_max_output_tokens: int = 800
+    bobby_live_max_output_tokens: int = 1400
 
 
 def provider_from_env(name: str, default_model: str) -> ProviderConfig:
@@ -85,12 +96,17 @@ def provider_from_env(name: str, default_model: str) -> ProviderConfig:
         api_style=os.getenv(f"{prefix}_API_STYLE", "responses").lower(),
         api_key_env=os.getenv(f"{prefix}_API_KEY_ENV", "OPENAI_API_KEY"),
         reasoning_effort=os.getenv(f"{prefix}_REASONING_EFFORT", "low"),
+        connect_timeout=env_float(f"{prefix}_CONNECT_TIMEOUT_SECONDS", 10.0),
+        first_token_timeout=env_float(f"{prefix}_FIRST_TOKEN_TIMEOUT_SECONDS", 45.0),
+        stream_idle_timeout=env_float(f"{prefix}_STREAM_IDLE_TIMEOUT_SECONDS", 45.0),
+        total_timeout=env_float(f"{prefix}_TOTAL_TIMEOUT_SECONDS", 180.0),
     )
 
 
 def get_settings() -> Settings:
     raw_data_dir = Path(os.getenv("ROUNDTABLE_DATA_DIR", "./data"))
     data_dir = raw_data_dir if raw_data_dir.is_absolute() else PROJECT_ROOT / raw_data_dir
+    live_default = max(250, env_int("LIVE_MAX_OUTPUT_TOKENS", 800))
     return Settings(
         project_root=PROJECT_ROOT,
         data_dir=data_dir,
@@ -98,11 +114,11 @@ def get_settings() -> Settings:
         db_path=data_dir / "roundtable.sqlite3",
         host=os.getenv("ROUNDTABLE_HOST", "127.0.0.1"),
         port=env_int("ROUNDTABLE_PORT", 8765),
-        digest_provider=os.getenv("DIGEST_PROVIDER", "bobby").lower(),
+        digest_provider=os.getenv("DIGEST_PROVIDER", "momo").lower(),
         digest_interval=max(5, min(6, env_int("ROUND_DIGEST_INTERVAL", 6))),
         recent_round_count=max(5, env_int("RECENT_ROUND_COUNT", 5)),
         host_checkpoint_interval=max(2, min(4, env_int("HOST_CHECKPOINT_INTERVAL", 3))),
-        live_max_output_tokens=max(250, env_int("LIVE_MAX_OUTPUT_TOKENS", 350)),
+        live_max_output_tokens=live_default,
         conversation_digest_max_output_tokens=max(
             2000, env_int("CONVERSATION_DIGEST_MAX_OUTPUT_TOKENS", 4000)
         ),
@@ -114,4 +130,12 @@ def get_settings() -> Settings:
         ),
         momo=provider_from_env("momo", "gpt-5.6-luna"),
         bobby=provider_from_env("bobby", "gpt-5.6-terra"),
+        digest_section_timeout=env_float("DIGEST_SECTION_TIMEOUT_SECONDS", 300.0),
+        digest_job_timeout=env_float("DIGEST_JOB_TIMEOUT_SECONDS", 900.0),
+        momo_live_max_output_tokens=max(
+            250, env_int("MOMO_LIVE_MAX_OUTPUT_TOKENS", 800)
+        ),
+        bobby_live_max_output_tokens=max(
+            250, env_int("BOBBY_LIVE_MAX_OUTPUT_TOKENS", 1400)
+        ),
     )

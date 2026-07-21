@@ -46,6 +46,18 @@ def infer_participant_target(content: str, explicit_target: str = "roundtable") 
     return "roundtable"
 
 
+def is_host_invitation(content: str) -> bool:
+    """Return true only for a complete final question explicitly addressed to Sam."""
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", content.strip()) if part.strip()]
+    if not paragraphs:
+        return False
+    final_paragraph = paragraphs[-1]
+    return bool(
+        re.match(r"^Sam,\s+", final_paragraph, re.IGNORECASE)
+        and re.search(r"\?[\"'\u2019\u201d)]*$", final_paragraph)
+    )
+
+
 def parse_json_object(text: str) -> dict[str, Any] | None:
     stripped = text.strip()
     if stripped.startswith("```"):
@@ -278,7 +290,11 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
         return GenerationRequest(
             system=system,
             messages=[{"role": "user", "content": context}],
-            max_output_tokens=self.settings.live_max_output_tokens,
+            max_output_tokens=(
+                self.settings.momo_live_max_output_tokens
+                if speaker == "Momo"
+                else self.settings.bobby_live_max_output_tokens
+            ),
             reasoning_effort=self.adapters.get(speaker).config.reasoning_effort,
             verbosity="low",
         )
@@ -446,7 +462,7 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                             },
                         )
                         yield {"type": "message_complete", "message": message}
-                        if re.search(r"(?:^|\n)Sam,\s", content[-500:], re.IGNORECASE):
+                        if is_host_invitation(content[-1000:]):
                             stop_for_host = True
                             if turn_index < len(order) - 1:
                                 round_complete = False
@@ -621,7 +637,7 @@ Transcript:
                 verbosity="medium",
             )
             self.db.update_job(job_id, progress=0.35, detail="Synthesizing conversation")
-            async with asyncio.timeout(900):
+            async with asyncio.timeout(self.settings.digest_job_timeout):
                 raw = await adapter.generate(request)
             digest = parse_json_object(raw)
             if not digest:
@@ -717,7 +733,7 @@ Transcript:
                 verbosity="medium",
             )
             self.db.update_job(job_id, progress=0.4, detail="Writing final summary")
-            async with asyncio.timeout(900):
+            async with asyncio.timeout(self.settings.digest_job_timeout):
                 summary = (await self._digest_adapter().generate(request)).strip()
             final_digest = {"status": "final", "visible_recap": summary}
             self.db.add_summary_digest(
@@ -821,7 +837,7 @@ Source summaries:
                 verbosity="medium",
             )
             self.db.update_job(job_id, progress=0.4, detail="Synthesizing topic")
-            async with asyncio.timeout(900):
+            async with asyncio.timeout(self.settings.digest_job_timeout):
                 raw = await self._digest_adapter().generate(request)
             digest = parse_json_object(raw)
             if not digest:
@@ -865,7 +881,7 @@ Source summaries:
                     reasoning_effort="medium",
                     verbosity="high",
                 )
-                async with asyncio.timeout(300):
+                async with asyncio.timeout(self.settings.digest_section_timeout):
                     section_digests.append(await adapter.generate(request))
             self.db.update_job(job_id, progress=0.8, detail="Creating document synthesis")
             synthesis_input = join_with_budget(
@@ -888,7 +904,7 @@ Source summaries:
                 reasoning_effort="medium",
                 verbosity="high",
             )
-            async with asyncio.timeout(900):
+            async with asyncio.timeout(self.settings.digest_job_timeout):
                 digest = await adapter.generate(synthesis_request)
             self.db.update_document(document_id, status="ready", digest=digest)
             self.db.update_job(job_id, status="complete", progress=1.0, detail="Document ready")

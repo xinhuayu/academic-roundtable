@@ -30,8 +30,8 @@ Depth here means intellectual progress—not long answers. Each AI turn should b
 
 ## Participant model
 
-- **Momo** emphasizes explanation, synthesis, mechanisms, and constructive hypotheses.
-- **Bobby** emphasizes critique, alternatives, methods, and uncertainty.
+- **Momo** emphasizes critique, alternatives, methods, uncertainty, and produces the retained digests through the OpenAI provider.
+- **Bobby** develops the strongest defensible case through mechanisms, conceptual distinctions, evidence needs, and constructive hypotheses.
 - **Sam** supplies the topic and scientific direction, participates in debate, requests recaps, and decides when the session ends.
 - **Conversation controller** schedules turns, assembles context, maintains lifecycle state, and coordinates background work. It is not a visible fourth participant.
 
@@ -81,9 +81,11 @@ FastAPI exposes session, message, segment, interrupt, recap, document, job, heal
 
 ### Provider boundary
 
-Momo and Bobby use separate configuration records and can target different OpenAI-compatible servers. Each adapter supports either the Responses API or Chat Completions style. Provider failures are reported per participant.
+Momo and Bobby use separate configuration records and can target different OpenAI-compatible servers. The default template keeps Momo on OpenAI and connects Bobby to Gemini 3.1 Flash-Lite through Google's OpenAI-compatible Chat Completions endpoint. Each adapter supports either the Responses API or Chat Completions style. Both paths forward the request's reasoning effort, and provider failures are reported per participant.
 
-Connection, first-token, stream-read, and total-turn timeouts are configured separately. The service explicitly enforces first-token and total-turn deadlines; the HTTP client's read timeout bounds idle streaming. Sam's interrupt also cancels the active stream task immediately, retaining any partial response already received.
+Reasoning, output allowances, and timeouts are task-aware. Live turns default to low reasoning and target 60–110 visible words. Momo receives 800 live completion tokens; Bobby receives 1,400 so Gemini's hidden reasoning does not consume the visible answer. Momo's OpenAI adapter handles source, topic, conversation, and final digests by default; these requests and learning evaluation explicitly use medium reasoning. A Chat Completions `finish_reason` of `length` is persisted as interrupted, reported to Sam, and stops the segment before the next AI speaks. Connection, first-token, stream-read, and total-turn deadlines are independently configurable per participant. The Gemini template allows 60 seconds for first output or an idle stream and 240 seconds for a complete live turn. Background section and whole-job deadlines are configured separately at 300 and 900 seconds. Sam's interrupt still cancels the active stream task immediately, retaining any partial response already received.
+
+Returning the floor to Sam requires a complete final question explicitly addressed to Sam. A direct statement beginning with Sam's name, an incomplete question, or an earlier question followed by further analysis does not prematurely stop the AI segment.
 
 ### Persistence and retrieval
 
@@ -148,7 +150,7 @@ Closeout is coordinated with the active generation lock so interrupted text is p
 - Direct mention routing, random undirected routing, and independent first answers
 - Sam-first response logic and host-deferred continuation
 - Scheduled human checkpoints
-- Concise academic debate prompts and labeled background knowledge
+- Concise academic debate prompts, labeled background knowledge, and line-separated `Inference:` statements for readable provenance
 - Topic, conversation, requested, periodic, and final digests
 - Five-round raw-history retention in every live request
 - PDF/TXT/Markdown upload, extraction, FTS5 retrieval, and source synthesis

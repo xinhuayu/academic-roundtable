@@ -3,8 +3,8 @@ import { api, exportUrl } from "./api";
 import type { EvaluationRatings, Job, LearningEvaluationBundle, Message, ProviderHealth, Session, Speaker, StreamEvent } from "./types";
 
 const speakerMeta: Record<Speaker, { monogram: string; subtitle: string }> = {
-  Momo: { monogram: "M", subtitle: "develops the case" },
-  Bobby: { monogram: "B", subtitle: "tests and challenges" },
+  Momo: { monogram: "M", subtitle: "tests and challenges" },
+  Bobby: { monogram: "B", subtitle: "develops the case" },
   Sam: { monogram: "S", subtitle: "academic host" },
   System: { monogram: "∴", subtitle: "roundtable recap" },
 };
@@ -48,7 +48,7 @@ function HighlightMentions({ text, breakSamQuestions = false }: { text: string; 
   })}</>;
 }
 
-function FormattedMessageContent({ text, breakSamQuestions = false }: { text: string; breakSamQuestions?: boolean }) {
+export function FormattedMessageContent({ text, breakSamQuestions = false }: { text: string; breakSamQuestions?: boolean }) {
   const parts = text.split(/(\*{0,2}(?:Background knowledge|Background information|Inference|Speculation):\*{0,2})/gi);
   const rendered: React.ReactNode[] = [];
   for (let index = 0; index < parts.length; index += 1) {
@@ -79,8 +79,9 @@ function FormattedMessageContent({ text, breakSamQuestions = false }: { text: st
         );
       }
     } else {
+      const isInference = label.toLowerCase() === "inference";
       rendered.push(
-        <span key={`provenance-${index}`}>
+        <span className={isInference ? "provenance-block inference-block" : undefined} key={`provenance-${index}`}>
           <strong className="provenance-label">{label}:</strong>
           <HighlightMentions text={content} breakSamQuestions={breakSamQuestions} />
         </span>,

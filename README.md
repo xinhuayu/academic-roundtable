@@ -16,7 +16,7 @@ Its guiding principle is **deep conversations for better learning**. The AIs deb
 
 Ordinary multi-agent chats tend to become long parallel monologues. Academic Roundtable instead treats focus, human authority, and readable disagreement as system behavior:
 
-- Momo develops mechanisms and integrative explanations; Bobby more persistently stress-tests Momo's and Sam's assumptions, evidence, alternatives, and boundary conditions. Both answer Sam directly and pursue depth without turning concise contributions into mini-essays.
+- Bobby develops the strongest defensible case through mechanisms, evidence needs, and integrative explanations; Momo persistently stress-tests Bobby's and Sam's assumptions, methods, alternatives, and boundary conditions. Both answer Sam directly and pursue depth without turning concise contributions into mini-essays.
 - AI-only discussion is limited to two to five rounds at a time. Automatic mode uses two rounds by default, with an occasional three-round variation; Sam may select an exact fixed length.
 - Sam can interrupt at any moment without losing already streamed text.
 - Live turns use the Topic Digest, latest Conversation Digest, active question, and five recent rounds.
@@ -107,22 +107,35 @@ Never place a real credential in `.env.example` or commit `.env.local`.
 ```dotenv
 # Add secrets only in your ignored local copy.
 OPENAI_API_KEY=
-BOBBY_API_KEY=
+GEMINI_API_KEY=
 
 MOMO_BASE_URL=https://api.openai.com/v1
 MOMO_MODEL=your-momo-model-id
 MOMO_API_STYLE=responses
 MOMO_API_KEY_ENV=OPENAI_API_KEY
 MOMO_REASONING_EFFORT=low
+MOMO_LIVE_MAX_OUTPUT_TOKENS=800
 
-BOBBY_BASE_URL=https://your-compatible-server.example/v1
-BOBBY_MODEL=your-bobby-model-id
+BOBBY_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+BOBBY_MODEL=gemini-3.1-flash-lite
 BOBBY_API_STYLE=chat_completions
-BOBBY_API_KEY_ENV=BOBBY_API_KEY
+BOBBY_API_KEY_ENV=GEMINI_API_KEY
 BOBBY_REASONING_EFFORT=low
+BOBBY_LIVE_MAX_OUTPUT_TOKENS=1400
+BOBBY_CONNECT_TIMEOUT_SECONDS=10
+BOBBY_FIRST_TOKEN_TIMEOUT_SECONDS=60
+BOBBY_STREAM_IDLE_TIMEOUT_SECONDS=60
+BOBBY_TOTAL_TIMEOUT_SECONDS=240
+
+# Longer limits apply to medium-reasoning background synthesis.
+DIGEST_PROVIDER=momo
+DIGEST_SECTION_TIMEOUT_SECONDS=300
+DIGEST_JOB_TIMEOUT_SECONDS=900
 ```
 
 `MOMO_API_KEY_ENV` and `BOBBY_API_KEY_ENV` contain the **names** of environment variables, not the secrets themselves. Supported API styles are `responses` and `chat_completions`.
+
+Reasoning is task-aware. Live turns use each participant's configured effort (`low` by default for speed); source, topic, conversation, final-summary, and learning-evaluation requests explicitly use `medium`. Chat Completions and Responses adapters both forward this setting. Momo receives an 800-token live allowance; Bobby receives 1,400 tokens so Gemini has room for hidden reasoning while the prompt limits visible prose to roughly 60–110 words. Momo's OpenAI adapter is the default provider for source, topic, conversation, and final digests. A Chat Completions `finish_reason` of `length` is treated as an interrupted response rather than silent success, and the next AI does not continue from that fragment. Provider timeout variables govern live calls; background digest jobs use their separate section and job deadlines.
 
 Check connectivity without displaying credentials:
 
@@ -178,9 +191,10 @@ Optional live-provider smoke test (uses API capacity):
 
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\smoke_generation.py
+.\.venv\Scripts\python.exe .\scripts\smoke_generation.py --participant Bobby
 ```
 
-The current deterministic backend suite contains 25 passing tests. The built-in learning-quality workflow and optional developer comparison tools are documented in [docs/LEARNING-QUALITY-EVALUATION.md](docs/LEARNING-QUALITY-EVALUATION.md). See [docs/CRITICAL-REVIEW.md](docs/CRITICAL-REVIEW.md) for the prioritized agent-system review and [docs/INDEPENDENT-AUDIT.md](docs/INDEPENDENT-AUDIT.md) for the broader audit.
+The current deterministic backend suite contains 33 passing tests. The built-in learning-quality workflow and optional developer comparison tools are documented in [docs/LEARNING-QUALITY-EVALUATION.md](docs/LEARNING-QUALITY-EVALUATION.md). See [docs/CRITICAL-REVIEW.md](docs/CRITICAL-REVIEW.md) for the prioritized agent-system review and [docs/INDEPENDENT-AUDIT.md](docs/INDEPENDENT-AUDIT.md) for the broader audit.
 
 ## Conversation memory
 

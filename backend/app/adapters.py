@@ -149,7 +149,13 @@ class LLMAdapter:
             "stream": True,
             "max_tokens": request.max_output_tokens,
         }
+        effort = request.reasoning_effort or self.config.reasoning_effort
+        if effort:
+            # OpenAI-compatible reasoning models, including Gemini 3, map this
+            # standard field to their provider-specific thinking controls.
+            body["reasoning_effort"] = effort
         try:
+            finish_reason: str | None = None
             async with self.client.stream("POST", "/chat/completions", json=body) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
@@ -160,11 +166,28 @@ class LLMAdapter:
                         continue
                     try:
                         event = json.loads(data)
-                        delta = event.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                        choice = event.get("choices", [{}])[0]
+                        delta = choice.get("delta", {}).get("content", "")
+                        if choice.get("finish_reason") is not None:
+                            finish_reason = str(choice["finish_reason"]).lower()
                     except (json.JSONDecodeError, IndexError, AttributeError):
                         continue
                     if delta:
                         yield delta
+            if finish_reason == "length":
+                raise ProviderError(
+                    self.config.participant,
+                    "output_limit",
+                    f"{self.config.participant} reached the generation limit before completing the response",
+                    retryable=True,
+                )
+            if finish_reason not in {None, "stop"}:
+                raise ProviderError(
+                    self.config.participant,
+                    "provider_finish",
+                    f"{self.config.participant} stopped with provider finish reason: {finish_reason}",
+                    retryable=False,
+                )
         except httpx.TimeoutException as exc:
             raise ProviderError(self.config.participant, "timeout", "Provider timed out", True) from exc
         except httpx.HTTPStatusError as exc:

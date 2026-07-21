@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
-from app.adapters import GenerationRequest
-from app.config import ProviderConfig, Settings
+import httpx
+import pytest
+
+from app.adapters import GenerationRequest, LLMAdapter, ProviderError
+from app.config import ProviderConfig, Settings, get_settings, provider_from_env
 from app.database import Database
 from app.prompts import ACADEMIC_CONVERSATION_SKILL, PERSONAS
-from app.service import RoundtableService, infer_participant_target, parse_json_object
+from app.service import (
+    RoundtableService,
+    infer_participant_target,
+    is_host_invitation,
+    parse_json_object,
+)
 from app.schemas import SessionCreate
 
 
@@ -51,11 +60,124 @@ def test_json_parser_handles_fenced_json() -> None:
     assert parsed == {"active_question": "Why?"}
 
 
+def test_chat_completions_forwards_task_reasoning_effort(monkeypatch) -> None:
+    monkeypatch.setenv("FAKE_GEMINI_KEY", "test-only-key")
+    captured: dict = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        event = 'data: {"choices":[{"delta":{"content":"Ready"}}]}\n\ndata: [DONE]\n\n'
+        return httpx.Response(200, text=event, headers={"content-type": "text/event-stream"})
+
+    provider = ProviderConfig(
+        participant="Bobby",
+        base_url="https://example.invalid/v1",
+        model="gemini-3.1-flash-lite",
+        api_style="chat_completions",
+        api_key_env="FAKE_GEMINI_KEY",
+        reasoning_effort="low",
+    )
+    adapter = LLMAdapter(provider)
+
+    async def scenario() -> str:
+        await adapter.client.aclose()
+        adapter.client = httpx.AsyncClient(
+            base_url=provider.base_url,
+            transport=httpx.MockTransport(handler),
+            headers={"Authorization": "Bearer test-only-key"},
+        )
+        try:
+            request = GenerationRequest(
+                system="Test",
+                messages=[{"role": "user", "content": "Synthesize"}],
+                max_output_tokens=4000,
+                reasoning_effort="medium",
+            )
+            return await adapter.generate(request)
+        finally:
+            await adapter.close()
+
+    assert asyncio.run(scenario()) == "Ready"
+    assert captured["reasoning_effort"] == "medium"
+    assert captured["max_tokens"] == 4000
+
+
+def test_chat_completion_length_finish_is_not_silent_success(monkeypatch) -> None:
+    monkeypatch.setenv("FAKE_GEMINI_KEY", "test-only-key")
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        events = (
+            'data: {"choices":[{"delta":{"content":"An unfinished claim"},"finish_reason":null}]}\n\n'
+            'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n'
+            'data: [DONE]\n\n'
+        )
+        return httpx.Response(200, text=events, headers={"content-type": "text/event-stream"})
+
+    provider = ProviderConfig(
+        participant="Bobby",
+        base_url="https://example.invalid/v1",
+        model="gemini-3.1-flash-lite",
+        api_style="chat_completions",
+        api_key_env="FAKE_GEMINI_KEY",
+        reasoning_effort="low",
+    )
+    adapter = LLMAdapter(provider)
+
+    async def scenario() -> list[str]:
+        await adapter.client.aclose()
+        adapter.client = httpx.AsyncClient(
+            base_url=provider.base_url,
+            transport=httpx.MockTransport(handler),
+            headers={"Authorization": "Bearer test-only-key"},
+        )
+        chunks: list[str] = []
+        try:
+            request = GenerationRequest(
+                system="Test",
+                messages=[{"role": "user", "content": "Respond"}],
+                max_output_tokens=350,
+                reasoning_effort="low",
+            )
+            with pytest.raises(ProviderError, match="generation limit"):
+                async for chunk in adapter.stream(request):
+                    chunks.append(chunk)
+            return chunks
+        finally:
+            await adapter.close()
+
+    assert asyncio.run(scenario()) == ["An unfinished claim"]
+
+
+def test_provider_timeout_profile_is_configurable(monkeypatch) -> None:
+    monkeypatch.setenv("BOBBY_FIRST_TOKEN_TIMEOUT_SECONDS", "60")
+    monkeypatch.setenv("BOBBY_STREAM_IDLE_TIMEOUT_SECONDS", "60")
+    monkeypatch.setenv("BOBBY_TOTAL_TIMEOUT_SECONDS", "240")
+    provider = provider_from_env("bobby", "fallback")
+    assert provider.first_token_timeout == 60
+    assert provider.stream_idle_timeout == 60
+    assert provider.total_timeout == 240
+
+
+def test_momo_digest_and_participant_budget_defaults(monkeypatch) -> None:
+    for name in (
+        "DIGEST_PROVIDER",
+        "LIVE_MAX_OUTPUT_TOKENS",
+        "MOMO_LIVE_MAX_OUTPUT_TOKENS",
+        "BOBBY_LIVE_MAX_OUTPUT_TOKENS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    settings = get_settings()
+    assert settings.digest_provider == "momo"
+    assert settings.live_max_output_tokens == 800
+    assert settings.momo_live_max_output_tokens == 800
+    assert settings.bobby_live_max_output_tokens == 1400
+
+
 def test_academic_roles_require_depth_and_distinct_critical_angles() -> None:
     assert "Answer Sam's actual question" in ACADEMIC_CONVERSATION_SKILL
     assert "one level deeper" in ACADEMIC_CONVERSATION_SKILL
-    assert "explanatory synthesizer" in PERSONAS["Momo"]
-    assert "Stress-test Momo's and Sam's claims" in PERSONAS["Bobby"]
+    assert "Stress-test Bobby's and Sam's claims" in PERSONAS["Momo"]
+    assert "case developer" in PERSONAS["Bobby"]
 
 
 def test_interrupt_event_is_immediate(tmp_path: Path) -> None:
@@ -157,12 +279,61 @@ def test_two_round_segment_completes_without_human_checkpoint(tmp_path: Path) ->
     ]
 
 
+def test_direct_address_to_sam_does_not_interrupt_round(tmp_path: Path) -> None:
+    db = make_db(tmp_path)
+    session = db.create_session("Direct address", "Keep the debate moving", 2, False, False)
+    db.add_message(session["id"], "Sam", "Begin with the main distinction.")
+    provider = ProviderConfig(
+        participant="Momo", base_url="https://example.invalid/v1", model="fake",
+        api_style="responses", api_key_env="FAKE_KEY", reasoning_effort="low",
+    )
+    settings = Settings(
+        project_root=tmp_path, data_dir=tmp_path, uploads_dir=tmp_path / "uploads",
+        db_path=tmp_path / "test.sqlite3", host="127.0.0.1", port=8765,
+        digest_provider="bobby", digest_interval=6, recent_round_count=5,
+        host_checkpoint_interval=3, live_max_output_tokens=350,
+        conversation_digest_max_output_tokens=2000, topic_digest_max_output_tokens=3000,
+        source_digest_max_output_tokens=4000, momo=provider, bobby=provider,
+    )
+    registry = FakeRegistry()
+
+    async def direct_address(request: GenerationRequest):
+        yield "Sam, this distinction matters because the estimands differ."
+
+    registry.items["Momo"].stream = direct_address
+    service = RoundtableService(settings, db, registry)
+
+    async def collect():
+        return [event async for event in service.stream_segment(
+            session["id"], rounds=2, starting_speaker="Momo"
+        )]
+
+    events = asyncio.run(collect())
+    assert not any(event["type"] == "host_invited" for event in events)
+    assert sum(event["type"] == "round_complete" for event in events) == 2
+    assert len([item for item in db.list_messages(session["id"]) if item["speaker"] != "Sam"]) == 4
+
+
 def test_name_and_at_mention_routing() -> None:
     assert infer_participant_target("@momo, explain this", "roundtable") == "Momo"
     assert infer_participant_target("Bobby should challenge this", "roundtable") == "Bobby"
     assert infer_participant_target("Momo and Bobby, compare views", "roundtable") == "both"
     assert infer_participant_target("Continue the discussion", "roundtable") == "roundtable"
     assert infer_participant_target("Momo is mentioned", "Bobby") == "Bobby"
+
+
+def test_direct_address_to_sam_does_not_end_ai_segment() -> None:
+    assert not is_host_invitation("Sam, this distinction matters because the estimands differ.")
+    assert not is_host_invitation("Sam, would you prefer the causal interpretation")
+    assert not is_host_invitation("Sam, what is your view?\n\nThe analysis continues with a limitation.")
+
+
+def test_complete_final_question_invites_sam() -> None:
+    contribution = (
+        "The two interpretations imply different identifying assumptions.\n\n"
+        "Sam, which assumption should we examine next?"
+    )
+    assert is_host_invitation(contribution)
 
 
 def test_greetings_are_excluded_from_initial_live_context(tmp_path: Path) -> None:
@@ -276,6 +447,45 @@ def test_first_token_timeout_returns_control_to_sam(tmp_path: Path) -> None:
     events = asyncio.run(collect())
     timeout_event = next(event for event in events if event["type"] == "provider_error")
     assert "first-token deadline" in timeout_event["message"]
+    assert db.get_session(session["id"])["state"] == "HUMAN_FLOOR"
+
+
+def test_output_limit_preserves_partial_and_prevents_next_speaker(tmp_path: Path) -> None:
+    db = make_db(tmp_path)
+    session = db.create_session("Truncation", "Do not continue from fragments", 2, False, False)
+    provider = ProviderConfig(
+        participant="Momo", base_url="https://example.invalid/v1", model="fake",
+        api_style="responses", api_key_env="FAKE_KEY", reasoning_effort="low",
+    )
+    settings = Settings(
+        project_root=tmp_path, data_dir=tmp_path, uploads_dir=tmp_path / "uploads",
+        db_path=tmp_path / "test.sqlite3", host="127.0.0.1", port=8765,
+        digest_provider="bobby", digest_interval=6, recent_round_count=5,
+        host_checkpoint_interval=3, live_max_output_tokens=500,
+        conversation_digest_max_output_tokens=2000, topic_digest_max_output_tokens=3000,
+        source_digest_max_output_tokens=4000, momo=provider, bobby=provider,
+    )
+    registry = FakeRegistry()
+
+    async def truncated_stream(request: GenerationRequest):
+        yield "An unfinished Bobby claim"
+        raise ProviderError("Bobby", "output_limit", "Bobby reached the generation limit", True)
+
+    registry.items["Bobby"].stream = truncated_stream
+    service = RoundtableService(settings, db, registry)
+
+    async def collect():
+        return [event async for event in service.stream_segment(
+            session["id"], rounds=2, starting_speaker="Bobby"
+        )]
+
+    events = asyncio.run(collect())
+    messages = db.list_messages(session["id"])
+    assert [(item["speaker"], item["status"]) for item in messages] == [
+        ("Bobby", "interrupted")
+    ]
+    assert any(event["type"] == "provider_error" for event in events)
+    assert not any(event["type"] == "message_start" and event.get("speaker") == "Momo" for event in events)
     assert db.get_session(session["id"])["state"] == "HUMAN_FLOOR"
 
 
@@ -458,11 +668,14 @@ def test_live_context_is_bounded_and_marks_clipped_content(tmp_path: Path) -> No
     service = RoundtableService(settings, db, FakeRegistry())
 
     request = service.build_context(db.get_session(session["id"]), "Momo", 0)
+    bobby_request = service.build_context(db.get_session(session["id"]), "Bobby", 1)
     context = request.messages[0]["content"]
 
     assert "clipped for this request; full content remains in the session" in context
     assert "UNTRUSTED SOURCE EVIDENCE" in context
     assert len(context) < 60000
+    assert request.max_output_tokens == 800
+    assert bobby_request.max_output_tokens == 1400
 
 
 def test_interrupt_cancels_stalled_stream_and_preserves_partial_text(tmp_path: Path) -> None:
