@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "instructions": "Run each fixture with the same provider/model settings for baseline and candidate. Sam should use the opening prompt, then choose follow-ups naturally. Do not force every follow-up.",
+  "fixtures": [
+    {
+      "id": "concept-definition-confounding",
+      "category": "conceptual explanation",
+      "topic": "Confounding in observational epidemiology",
+      "learning_goal": "Distinguish confounding from mediation and selection bias",
+      "opening_prompt": "Let's begin with a precise but intuitive definition of confounding. Then test the definition against a concrete example.",
+      "host_followups": ["Does this variable meet all parts of the definition?", "Bobby, challenge Momo's example with a boundary case."],
+      "source_mode": "model_knowledge_allowed",
+      "evaluation_focus": ["conceptual precision", "counterexample quality", "readability"]
+    },
+    {
+      "id": "theory-comparison-causation",
+      "category": "theory comparison",
+      "topic": "Potential outcomes and causal diagrams",
+      "learning_goal": "Understand what each framework makes easier to reason about",
+      "opening_prompt": "Compare potential-outcome and DAG approaches without treating them as rival slogans. Where does each expose assumptions better?",
+      "host_followups": ["Give one problem where the frameworks lead to the same answer.", "What important disagreement remains?"],
+      "source_mode": "model_knowledge_allowed",
+      "evaluation_focus": ["fair comparison", "assumptions", "synthesis"]
+    },
+    {
+      "id": "evidence-interpretation-risk",
+      "category": "evidence interpretation",
+      "topic": "Relative and absolute measures of treatment benefit",
+      "learning_goal": "Interpret effect measures without exaggerating practical importance",
+      "opening_prompt": "A treatment reduces relative risk by 50%, from 2% to 1%. Debate what a learner should conclude and what remains unknown.",
+      "host_followups": ["Which measure is most useful to a patient?", "What baseline-risk mistake should I avoid?"],
+      "source_mode": "model_knowledge_allowed",
+      "evaluation_focus": ["quantitative interpretation", "uncertainty", "practical judgment"]
+    },
+    {
+      "id": "study-design-target-trial",
+      "category": "epidemiologic methods",
+      "topic": "Target trial emulation",
+      "learning_goal": "Recognize design choices that prevent immortal-time and selection biases",
+      "opening_prompt": "Explain why specifying time zero matters in target trial emulation, then debate whether that alone solves immortal-time bias.",
+      "host_followups": ["Walk through a treatment-initiation example.", "Which remaining design decision is most fragile?"],
+      "source_mode": "model_knowledge_allowed",
+      "evaluation_focus": ["mechanistic reasoning", "methodological challenge", "boundary conditions"]
+    },
+    {
+      "id": "measurement-construct-validity",
+      "category": "measurement",
+      "topic": "Construct validity of a depression scale",
+      "learning_goal": "Separate reliability, construct validity, and decision usefulness",
+      "opening_prompt": "A depression scale has high internal consistency. Debate what this does and does not establish about validity.",
+      "host_followups": ["Could reliability become misleading here?", "What evidence would most change your judgment?"],
+      "source_mode": "model_knowledge_allowed",
+      "evaluation_focus": ["distinctions", "decisive evidence", "non-repetition"]
+    },
+    {
+      "id": "mechanism-social-isolation",
+      "category": "mechanism",
+      "topic": "Social isolation and cognitive decline",
+      "learning_goal": "Compare causal mechanisms with reverse causation and confounding",
+      "opening_prompt": "Develop the strongest causal mechanism linking isolation to cognitive decline, then have the other speaker challenge it.",
+      "host_followups": ["How could reverse causation generate the same pattern?", "What design would discriminate these accounts?"],
+      "source_mode": "model_knowledge_allowed",
+      "evaluation_focus": ["alternative explanations", "study design", "intellectual progress"]
+    },
+    {
+      "id": "policy-transportability",
+      "category": "external validity",
+      "topic": "Transporting a school intervention across settings",
+      "learning_goal": "Identify effect modifiers and contextual assumptions",
+      "opening_prompt": "An intervention worked in urban schools. Debate what must be true before applying the estimate to rural schools.",
+      "host_followups": ["Which difference is an effect modifier rather than merely descriptive?", "What minimum local data would you request?"],
+      "source_mode": "model_knowledge_allowed",
+      "evaluation_focus": ["transport assumptions", "prioritization", "actionable synthesis"]
+    },
+    {
+      "id": "source-grounded-claim",
+      "category": "source-grounded discussion",
+      "topic": "Interpretation of an uploaded empirical paper",
+      "learning_goal": "Separate reported findings from inference and model knowledge",
+      "opening_prompt": "Using only the uploaded paper for empirical claims, identify its strongest conclusion and the strongest limitation to that conclusion.",
+      "host_followups": ["Show me which point comes from the source and which is your inference.", "Would background knowledge change the interpretation?"],
+      "source_mode": "sources_only_first_then_allow_background",
+      "evaluation_focus": ["provenance", "source fidelity", "calibrated inference"]
+    },
+    {
+      "id": "host-redirection",
+      "category": "host agency",
+      "topic": "Ethics of predictive risk models",
+      "learning_goal": "Compare calibration, fairness, and consequences of use",
+      "opening_prompt": "Begin with calibration and fairness tradeoffs.",
+      "host_followups": ["Let's move away from metrics and focus on who bears the harm.", "Continue without waiting for me, but return with one decision I must make."],
+      "source_mode": "model_knowledge_allowed",
+      "evaluation_focus": ["redirection responsiveness", "host agency", "bounded autonomy"]
+    },
+    {
+      "id": "recap-fidelity",
+      "category": "digest quality",
+      "topic": "Screening-test thresholds",
+      "learning_goal": "Reason about sensitivity, specificity, prevalence, and consequences",
+      "opening_prompt": "Debate how a screening threshold should change when false negatives are especially costly.",
+      "host_followups": ["Now introduce low prevalence and revise the argument.", "Let's recap the disagreement and what changed after prevalence entered the discussion."],
+      "source_mode": "model_knowledge_allowed",
+      "evaluation_focus": ["recap fidelity", "position attribution", "evolution of reasoning"]
+    }
+  ]
+}

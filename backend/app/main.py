@@ -1,0 +1,525 @@
+from __future__ import annotations
+
+import io
+import json
+import re
+import uuid
+import zipfile
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+
+from .adapters import AdapterRegistry
+from .config import get_settings
+from .database import Database
+from .documents import MAX_UPLOAD_BYTES, safe_extension
+from .evaluation import RUBRIC, analyze_session, apply_human_ratings, rating_template
+from .schemas import (
+    LearningEvaluationSubmission,
+    RecapRequest,
+    SamMessage,
+    SegmentRequest,
+    SessionCreate,
+    SessionSettingsUpdate,
+)
+from .service import RoundtableService, infer_participant_target
+
+
+settings = get_settings()
+settings.data_dir.mkdir(parents=True, exist_ok=True)
+settings.uploads_dir.mkdir(parents=True, exist_ok=True)
+database = Database(settings.db_path)
+database.initialize()
+database.reconcile_abandoned_work()
+adapters = AdapterRegistry(settings)
+service = RoundtableService(settings, database, adapters)
+
+app = FastAPI(title="Academic Roundtable", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    await adapters.close()
+
+
+def require_session(session_id: str) -> dict[str, Any]:
+    session = database.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
+
+
+def session_view(session_id: str) -> dict[str, Any]:
+    session = require_session(session_id)
+    return {
+        **session,
+        "messages": database.list_messages(session_id),
+        "documents": [public_document(item) for item in database.list_documents(session_id)],
+        "jobs": database.list_jobs(session_id),
+        "summary_history": database.list_summary_digests(session_id),
+        "learning_evaluation": database.get_learning_evaluation(session_id),
+    }
+
+
+def public_document(document: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in document.items() if key != "stored_path"}
+
+
+def sse(data: dict[str, Any]) -> str:
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def render_session_markdown(view: dict[str, Any]) -> str:
+    lines = [
+        f"# {view['topic']}",
+        "",
+        f"**Learning goal:** {view['learning_goal']}",
+        f"**Completed rounds:** {view['completed_rounds']}",
+        "",
+        "## Topic Digest",
+        "",
+        "```json",
+        json.dumps(view["topic_digest"], ensure_ascii=False, indent=2),
+        "```",
+        "",
+        "## Conversation Digest",
+        "",
+        "```json",
+        json.dumps(view["conversation_digest"], ensure_ascii=False, indent=2),
+        "```",
+        "",
+        "## Summary Digest History",
+        "",
+    ]
+    for index, digest in enumerate(view["summary_history"], start=1):
+        lines.extend([
+            f"### Digest {index}: {digest['kind']} (through round {digest['through_round']})",
+            "",
+            "```json",
+            json.dumps(digest["digest"], ensure_ascii=False, indent=2),
+            "```",
+            "",
+        ])
+    lines.extend(["## Transcript", ""])
+    for message in view["messages"]:
+        lines.extend([f"### {message['speaker']}", "", message["content"], ""])
+    evaluation = view.get("learning_evaluation")
+    if evaluation:
+        review = (evaluation.get("report") or {}).get("human_review") or {}
+        lines.extend(["## Learning-Quality Evaluation", ""])
+        lines.append(f"**Weighted human score:** {review.get('weighted_score', 'Not completed')} / 5")
+        lines.append("")
+        for entry in (review.get("ratings") or {}).values():
+            lines.extend([
+                f"### {entry.get('label', 'Dimension')}: {entry.get('score') or 'Not scored'}",
+                "",
+                entry.get("evidence") or entry.get("note") or "No evidence recorded.",
+                "",
+            ])
+    return "\n".join(lines)
+
+
+def remove_managed_uploads(paths: list[str]) -> None:
+    upload_root = settings.uploads_dir.resolve()
+    for raw_path in paths:
+        candidate = Path(raw_path)
+        try:
+            resolved = candidate.resolve()
+            if resolved == upload_root or upload_root not in resolved.parents:
+                continue
+            resolved.unlink(missing_ok=True)
+        except OSError:
+            continue
+
+
+@app.get("/api/meta")
+async def meta() -> dict[str, Any]:
+    return {
+        "name": "Academic Roundtable",
+        "version": "0.1.0",
+        "digest_interval": settings.digest_interval,
+        "recent_round_count": settings.recent_round_count,
+        "supported_uploads": ["pdf", "txt", "md"],
+    }
+
+
+@app.get("/api/health")
+async def health() -> dict[str, Any]:
+    return {"status": "ok", "providers": await service.provider_health()}
+
+
+@app.get("/api/sessions")
+async def list_sessions() -> list[dict[str, Any]]:
+    return database.list_sessions()
+
+
+@app.post("/api/sessions", status_code=201)
+async def create_session(payload: SessionCreate) -> dict[str, Any]:
+    previous_sessions = database.list_sessions()
+    if previous_sessions and previous_sessions[0]["state"] != "CLOSED":
+        raise HTTPException(
+            status_code=409,
+            detail="Conclude the current session and save its record before starting a new one",
+        )
+    for previous in previous_sessions:
+        await service.interrupt_and_wait(previous["id"])
+        await service.cancel_session_background_tasks(previous["id"])
+        await service.wait_until_session_idle(previous["id"])
+    remove_managed_uploads(database.purge_all_sessions())
+    session = database.create_session(
+        topic=payload.topic,
+        learning_goal=payload.learning_goal,
+        rounds_per_segment=payload.rounds_per_segment,
+        sources_only=payload.sources_only,
+        periodic_summary=payload.periodic_summary,
+    )
+    database.add_message(
+        session["id"],
+        "Momo",
+        "Hello, Sam—I'm Momo. I'm glad to join you and Bobby for this discussion.",
+        metadata={"kind": "greeting"},
+    )
+    database.add_message(
+        session["id"],
+        "Bobby",
+        "Hello, Sam—I'm Bobby. I’m ready when you are; you can set our first scientific direction.",
+        metadata={"kind": "greeting"},
+    )
+    return session_view(session["id"])
+
+
+@app.get("/api/sessions/{session_id}")
+async def get_session(session_id: str) -> dict[str, Any]:
+    return session_view(session_id)
+
+
+@app.get("/api/sessions/{session_id}/export")
+async def export_session(session_id: str, format: str = "markdown"):
+    view = session_view(session_id)
+    if view["state"] != "CLOSED":
+        raise HTTPException(
+            status_code=409,
+            detail="Conclude the session before downloading its final record",
+        )
+    if format == "json":
+        return JSONResponse(
+            view,
+            headers={"Content-Disposition": f'attachment; filename="roundtable-{session_id}.json"'},
+        )
+    markdown = render_session_markdown(view)
+    if format == "archive":
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("session.md", markdown)
+            archive.writestr(
+                "session.json",
+                json.dumps(view, ensure_ascii=False, indent=2),
+            )
+            upload_root = settings.uploads_dir.resolve()
+            for index, document in enumerate(database.list_documents(session_id), start=1):
+                source = Path(document["stored_path"])
+                try:
+                    resolved = source.resolve()
+                    if upload_root not in resolved.parents or not resolved.is_file():
+                        continue
+                    filename = Path(document["filename"]).name
+                    archive.write(resolved, f"sources/{index:02d}-{filename}")
+                except OSError:
+                    continue
+        return Response(
+            buffer.getvalue(),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="roundtable-{session_id}.zip"'},
+        )
+    if format != "markdown":
+        raise HTTPException(status_code=400, detail="Export format must be markdown, json, or archive")
+    return Response(
+        markdown,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="roundtable-{session_id}.md"'},
+    )
+
+
+def learning_evaluation_bundle(session_id: str) -> dict[str, Any]:
+    view = session_view(session_id)
+    if view["state"] != "CLOSED":
+        raise HTTPException(
+            status_code=409,
+            detail="Learning evaluation becomes available after final summary processing ends",
+        )
+    stored = view.get("learning_evaluation")
+    report = analyze_session(view)
+    ratings = stored["ratings"] if stored else rating_template(view)
+    if stored:
+        report = apply_human_ratings(report, ratings)
+    return {
+        "report": report,
+        "ratings": ratings,
+        "rubric": RUBRIC,
+        "saved": bool(stored),
+        "updated_at": stored.get("updated_at") if stored else None,
+    }
+
+
+@app.get("/api/sessions/{session_id}/learning-evaluation")
+async def get_learning_evaluation(session_id: str) -> dict[str, Any]:
+    require_session(session_id)
+    return learning_evaluation_bundle(session_id)
+
+
+@app.put("/api/sessions/{session_id}/learning-evaluation")
+async def save_learning_evaluation(
+    session_id: str,
+    payload: LearningEvaluationSubmission,
+) -> dict[str, Any]:
+    view = session_view(session_id)
+    if view["state"] != "CLOSED":
+        raise HTTPException(
+            status_code=409,
+            detail="Learning evaluation becomes available after final summary processing ends",
+        )
+    ratings = payload.model_dump()
+    ratings["schema_version"] = 1
+    ratings["session_id"] = session_id
+    report = apply_human_ratings(analyze_session(view), ratings)
+    database.save_learning_evaluation(session_id, report, ratings)
+    return learning_evaluation_bundle(session_id)
+
+
+@app.patch("/api/sessions/{session_id}")
+async def update_session(session_id: str, payload: SessionSettingsUpdate) -> dict[str, Any]:
+    require_session(session_id)
+    updates = payload.model_dump(exclude_none=True)
+    database.update_session(session_id, **updates)
+    return session_view(session_id)
+
+
+SUMMARY_PATTERN = re.compile(
+    r"\b(summar(?:y|ize)|recap|conversation so far|periodic summar|what have we established)\b",
+    re.IGNORECASE,
+)
+PERIODIC_PATTERN = re.compile(r"\b(periodic|every (?:five|six|5|6) rounds)\b", re.IGNORECASE)
+CLOSING_PATTERN = re.compile(
+    r"\b(let(?:'|’)s\s+(?:finish|conclude|wrap\s+up)|"
+    r"(?:finish|conclude|end|close)\s+(?:this|the|our)\s+(?:session|conversation|discussion)|"
+    r"wrap\s+up\s+(?:this|the|our)\s+(?:session|conversation|discussion))\b",
+    re.IGNORECASE,
+)
+
+
+def ensure_closing_message(session_id: str, target: str = "roundtable") -> dict[str, Any]:
+    existing = next(
+        (
+            item for item in database.list_messages(session_id)
+            if (item.get("metadata") or {}).get("kind") == "closing"
+        ),
+        None,
+    )
+    if existing:
+        return existing
+    closing_speaker = service.choose_next_speaker(session_id, target)
+    return database.add_message(
+        session_id,
+        closing_speaker,
+        "Thank you, Sam—this was a thoughtful conversation. Let’s finish here.",
+        metadata={"kind": "closing"},
+    )
+
+
+@app.post("/api/sessions/{session_id}/messages")
+async def add_sam_message(session_id: str, payload: SamMessage) -> dict[str, Any]:
+    current_session = require_session(session_id)
+    if current_session["state"] in {"CLOSING", "CLOSED"}:
+        raise HTTPException(status_code=409, detail="This session has already concluded")
+    was_interrupted = await service.interrupt_and_wait(session_id)
+    inferred_target = infer_participant_target(payload.content, payload.target)
+    message = database.add_message(
+        session_id,
+        "Sam",
+        payload.content,
+        target=inferred_target,
+        metadata={
+            "interrupted_active_segment": was_interrupted,
+            "explicit_target": payload.target,
+            "inferred_target": inferred_target,
+        },
+    )
+    database.update_session(session_id, active_question=payload.content)
+    starting_speaker = service.choose_next_speaker(session_id, inferred_target)
+    action: dict[str, Any] = {"message": message, "interrupted": was_interrupted}
+    if CLOSING_PATTERN.search(payload.content):
+        await service.cancel_session_background_tasks(session_id)
+        action["closing_message"] = ensure_closing_message(session_id, inferred_target)
+        action["final_summary_job"] = service.request_final_summary(session_id)
+        action["suggested_action"] = "wait_for_final_summary"
+    elif SUMMARY_PATTERN.search(payload.content):
+        periodic = True if PERIODIC_PATTERN.search(payload.content) else None
+        action["recap_job"] = service.request_recap(session_id, payload.content, periodic)
+        action["suggested_action"] = "wait_for_recap"
+    elif payload.continue_rounds:
+        action["suggested_action"] = "start_segment"
+        action["continue_rounds"] = payload.continue_rounds
+        action["starting_speaker"] = starting_speaker
+    else:
+        action["suggested_action"] = "start_segment"
+        action["continue_rounds"] = current_session["rounds_per_segment"]
+        action["starting_speaker"] = starting_speaker
+    return action
+
+
+@app.post("/api/sessions/{session_id}/close")
+async def close_session(session_id: str) -> dict[str, Any]:
+    session = require_session(session_id)
+    if session["state"] == "CLOSED":
+        return session_view(session_id)
+    await service.interrupt_and_wait(session_id)
+    await service.cancel_session_background_tasks(session_id)
+    ensure_closing_message(session_id)
+    service.request_final_summary(session_id)
+    return session_view(session_id)
+
+
+@app.post("/api/sessions/{session_id}/final-summary/cancel")
+async def cancel_final_summary(session_id: str) -> dict[str, Any]:
+    require_session(session_id)
+    await service.cancel_final_summary(session_id)
+    return session_view(session_id)
+
+
+@app.delete("/api/sessions/{session_id}", status_code=204)
+async def discard_session(session_id: str) -> Response:
+    session = require_session(session_id)
+    if session["state"] not in {"CLOSING", "CLOSED"}:
+        raise HTTPException(status_code=409, detail="End the session before discarding it")
+    await service.interrupt_and_wait(session_id)
+    await service.cancel_final_summary(session_id)
+    await service.cancel_session_background_tasks(session_id)
+    await service.wait_until_session_idle(session_id)
+    remove_managed_uploads(database.purge_all_sessions())
+    return Response(status_code=204)
+
+
+@app.post("/api/sessions/{session_id}/segments")
+async def start_segment(session_id: str, payload: SegmentRequest) -> StreamingResponse:
+    session = require_session(session_id)
+    if session["state"] in {"CLOSING", "CLOSED"}:
+        raise HTTPException(status_code=409, detail="This session has concluded")
+
+    async def event_stream():
+        async for event in service.stream_segment(
+            session_id,
+            rounds=payload.rounds,
+            starting_speaker=payload.starting_speaker,
+            continue_without_sam=payload.continue_without_sam,
+        ):
+            yield sse(event)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/api/sessions/{session_id}/interrupt")
+async def interrupt(session_id: str) -> dict[str, Any]:
+    require_session(session_id)
+    return {"interrupted": await service.interrupt_and_wait(session_id)}
+
+
+@app.post("/api/sessions/{session_id}/recap", status_code=202)
+async def recap(session_id: str, payload: RecapRequest) -> dict[str, Any]:
+    require_session(session_id)
+    await service.interrupt_and_wait(session_id)
+    return service.request_recap(session_id, payload.focus, payload.periodic)
+
+
+@app.post("/api/sessions/{session_id}/documents", status_code=202)
+async def upload_document(session_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
+    require_session(session_id)
+    original_name = Path(file.filename or "document").name
+    try:
+        extension = safe_extension(original_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=415, detail=str(exc)) from exc
+    stored_name = f"{uuid.uuid4().hex}{extension}"
+    stored_path = settings.uploads_dir / stored_name
+    size = 0
+    try:
+        with stored_path.open("wb") as handle:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="File exceeds the 30 MB limit")
+                handle.write(chunk)
+    except Exception:
+        stored_path.unlink(missing_ok=True)
+        raise
+    document = database.add_document(
+        session_id,
+        original_name,
+        str(stored_path),
+        file.content_type or "application/octet-stream",
+    )
+    job = service.request_document_digest(document["id"])
+    return {"document": public_document(document), "job": job}
+
+
+@app.get("/api/sessions/{session_id}/jobs")
+async def list_jobs(session_id: str) -> list[dict[str, Any]]:
+    require_session(session_id)
+    return database.list_jobs(session_id)
+
+
+@app.get("/api/jobs/{job_id}")
+async def get_job(job_id: str) -> dict[str, Any]:
+    job = database.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@app.get("/api/documents/{document_id}")
+async def get_document(document_id: str) -> dict[str, Any]:
+    document = database.get_document(document_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return public_document(document)
+
+
+frontend_dist = settings.project_root / "frontend" / "dist"
+if frontend_dist.exists():
+    assets_dir = frontend_dist / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.get("/{path:path}", include_in_schema=False)
+    async def frontend(path: str):
+        candidate = frontend_dist / path
+        if path and candidate.is_file() and frontend_dist in candidate.resolve().parents:
+            return FileResponse(candidate)
+        return FileResponse(frontend_dist / "index.html")
+else:
+    @app.get("/", include_in_schema=False)
+    async def root() -> JSONResponse:
+        return JSONResponse(
+            {
+                "name": "Academic Roundtable API",
+                "message": "Build the frontend or run its development server on port 5173.",
+                "docs": "/docs",
+            }
+        )

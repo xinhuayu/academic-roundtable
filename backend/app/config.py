@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def load_env_file(path: Path) -> None:
+    """Load a small dotenv subset without ever logging values."""
+    if not path.exists() or path.is_symlink():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_env_file(PROJECT_ROOT / ".env.local")
+load_env_file(PROJECT_ROOT / ".env")
+
+
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+@dataclass(frozen=True)
+class ProviderConfig:
+    participant: str
+    base_url: str
+    model: str
+    api_style: str
+    api_key_env: str
+    reasoning_effort: str
+    connect_timeout: float = 10.0
+    first_token_timeout: float = 45.0
+    stream_idle_timeout: float = 45.0
+    total_timeout: float = 180.0
+
+    @property
+    def api_key(self) -> str:
+        return os.getenv(self.api_key_env, "")
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.base_url and self.model and self.api_key)
+
+
+@dataclass(frozen=True)
+class Settings:
+    project_root: Path
+    data_dir: Path
+    uploads_dir: Path
+    db_path: Path
+    host: str
+    port: int
+    digest_provider: str
+    digest_interval: int
+    recent_round_count: int
+    host_checkpoint_interval: int
+    live_max_output_tokens: int
+    conversation_digest_max_output_tokens: int
+    topic_digest_max_output_tokens: int
+    source_digest_max_output_tokens: int
+    momo: ProviderConfig
+    bobby: ProviderConfig
+
+
+def provider_from_env(name: str, default_model: str) -> ProviderConfig:
+    prefix = name.upper()
+    return ProviderConfig(
+        participant=name.capitalize(),
+        base_url=os.getenv(f"{prefix}_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
+        model=os.getenv(f"{prefix}_MODEL", default_model),
+        api_style=os.getenv(f"{prefix}_API_STYLE", "responses").lower(),
+        api_key_env=os.getenv(f"{prefix}_API_KEY_ENV", "OPENAI_API_KEY"),
+        reasoning_effort=os.getenv(f"{prefix}_REASONING_EFFORT", "low"),
+    )
+
+
+def get_settings() -> Settings:
+    raw_data_dir = Path(os.getenv("ROUNDTABLE_DATA_DIR", "./data"))
+    data_dir = raw_data_dir if raw_data_dir.is_absolute() else PROJECT_ROOT / raw_data_dir
+    return Settings(
+        project_root=PROJECT_ROOT,
+        data_dir=data_dir,
+        uploads_dir=data_dir / "uploads",
+        db_path=data_dir / "roundtable.sqlite3",
+        host=os.getenv("ROUNDTABLE_HOST", "127.0.0.1"),
+        port=env_int("ROUNDTABLE_PORT", 8765),
+        digest_provider=os.getenv("DIGEST_PROVIDER", "bobby").lower(),
+        digest_interval=max(5, min(6, env_int("ROUND_DIGEST_INTERVAL", 6))),
+        recent_round_count=max(5, env_int("RECENT_ROUND_COUNT", 5)),
+        host_checkpoint_interval=max(2, min(4, env_int("HOST_CHECKPOINT_INTERVAL", 3))),
+        live_max_output_tokens=max(250, env_int("LIVE_MAX_OUTPUT_TOKENS", 350)),
+        conversation_digest_max_output_tokens=max(
+            2000, env_int("CONVERSATION_DIGEST_MAX_OUTPUT_TOKENS", 4000)
+        ),
+        topic_digest_max_output_tokens=max(
+            3000, env_int("TOPIC_DIGEST_MAX_OUTPUT_TOKENS", 6000)
+        ),
+        source_digest_max_output_tokens=max(
+            4000, env_int("SOURCE_DIGEST_MAX_OUTPUT_TOKENS", 8000)
+        ),
+        momo=provider_from_env("momo", "gpt-5.6-luna"),
+        bobby=provider_from_env("bobby", "gpt-5.6-terra"),
+    )
