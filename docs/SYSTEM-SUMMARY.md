@@ -56,7 +56,9 @@ During a session:
 - Recaps can be requested in natural language or from the interface and appear below the transcript.
 - The header **End** action or closing language interrupts generation, creates one brief AI farewell, and opens the download handoff. A highlighted blue live-status panel distinguishes “Summarizing the session materials……” from “Generating the one-page summary……” and displays the active job detail. Final-summary generation can be cancelled without losing transcript or digest downloads. After completion, the save/download row appears before the optional **Evaluate learning** control.
 
-The transcript uses a fixed-height rolling viewport. New streamed content scrolls inside that viewport rather than moving the whole page, keeping Sam's composer accessible.
+The transcript uses a fixed-height rolling viewport. New streamed content scrolls inside that viewport rather than moving the whole page, keeping Sam's composer accessible. When Sam has the floor, both the composer and the top-right floor indicator are highlighted.
+
+Active Topic Digest and Conversation Digest jobs appear as compact temporary **System** cards inside the transcript (“Topic summarizing…” or “Conversation summarizing…”). These cards are derived only from the current frontend job list: they are not posted as messages, do not enter recent-round context or digest history, are absent from exports, and disappear automatically when the job completes or fails.
 
 ## Architecture
 
@@ -169,7 +171,9 @@ Closeout is coordinated with the active generation lock so interrupted text is p
 - Sources-only mode and model-knowledge fallback mode
 - Fixed rolling transcript with visible host controls
 - Sam composer highlight while the human floor is active
+- Highlighted top-right Sam-floor indicator
 - Provider health and background-job progress
+- Ephemeral, non-persistent System transcript cards for topic/conversation digestion
 - Blue closeout progress notices for final and one-page summary stages
 - Complete Markdown, JSON, and ZIP exports after closure
 - Built-in closeout learning evaluation with automated diagnostics, Sam's evidence-backed rubric, and export inclusion

@@ -20,6 +20,21 @@ function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone
   return <span className={`badge badge-${tone}`}>{children}</span>;
 }
 
+export function buildDigestStatusMessages(jobs: Job[]): Message[] {
+  return jobs
+    .filter((job) => ["topic_digest", "conversation_digest"].includes(job.kind) && ["queued", "running"].includes(job.status))
+    .map((job) => ({
+      id: `ephemeral-${job.id}`,
+      speaker: "System",
+      content: job.kind === "topic_digest" ? "Topic summarizing…" : "Conversation summarizing…",
+      status: "working",
+      target: "roundtable",
+      metadata: { kind: "ephemeral_digest_status", job_id: job.id },
+      created_at: job.id,
+      temporary: true,
+    }));
+}
+
 function Participant({ health }: { health: ProviderHealth }) {
   const tone = health.reachable ? "ready" : health.configured ? "warning" : "danger";
   return (
@@ -93,12 +108,13 @@ export function FormattedMessageContent({ text, breakSamQuestions = false }: { t
 
 function TranscriptMessage({ message }: { message: Message }) {
   const meta = speakerMeta[message.speaker] ?? speakerMeta.System;
+  const ephemeralSystem = message.metadata.kind === "ephemeral_digest_status";
   return (
-    <article className={`message message-${message.speaker.toLowerCase()} ${message.temporary ? "is-streaming" : ""}`}>
+    <article className={`message message-${message.speaker.toLowerCase()} ${message.temporary ? "is-streaming" : ""} ${ephemeralSystem ? "is-ephemeral-system" : ""}`}>
       <div className="avatar" aria-hidden="true">{meta.monogram}</div>
       <div className="message-body">
         <header>
-          <div><strong>{message.speaker}</strong><span>{meta.subtitle}</span></div>
+          <div><strong>{message.speaker}</strong><span>{ephemeralSystem ? "background task" : meta.subtitle}</span></div>
           {message.status !== "complete" && <Badge tone="warning">{message.status}</Badge>}
         </header>
         <div className="message-content">{message.content ? <FormattedMessageContent text={message.content} breakSamQuestions={message.speaker === "Momo" || message.speaker === "Bobby"} /> : <span className="thinking">thinking…</span>}</div>
@@ -292,7 +308,7 @@ function App() {
       viewport.scrollTop = viewport.scrollHeight;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [session?.messages, busy]);
+  }, [session?.messages, busy, session?.jobs.filter((job) => ["topic_digest", "conversation_digest"].includes(job.kind) && ["queued", "running"].includes(job.status)).length]);
 
   useEffect(() => {
     if (!busy) return;
@@ -310,6 +326,7 @@ function App() {
   const activeJobs = useMemo(() => session?.jobs.filter((job) => ["queued", "running"].includes(job.status)) ?? [], [session?.jobs]);
   const activeFinalSummaryJob = activeJobs.find((job) => job.kind === "final_summary");
   const activeOnePageSummaryJob = activeJobs.find((job) => job.kind === "one_page_summary");
+  const digestStatusMessages = useMemo(() => buildDigestStatusMessages(activeJobs), [activeJobs]);
   const conversationMessages = useMemo(() => session?.messages.filter((message) => !(message.speaker === "System" && message.metadata.kind === "recap")) ?? [], [session?.messages]);
   const recapMessages = useMemo(() => session?.messages.filter((message) => message.speaker === "System" && ["recap", "final_summary"].includes(String(message.metadata.kind))) ?? [], [session?.messages]);
   const hasSamDirection = useMemo(() => session?.messages.some((message) => message.speaker === "Sam" && message.metadata.kind !== "session_opening") ?? false, [session?.messages]);
@@ -607,10 +624,11 @@ function App() {
           {activeJobs.length > 0 && <div className="job-strip">{activeJobs.slice(0, 2).map((job: Job) => <div key={job.id}><span className="spinner" /><strong>{job.kind.replaceAll("_", " ")}</strong><span>{job.detail}</span></div>)}</div>}
 
           <section className={`conversation-card ${busy ? "is-live" : ""}`} ref={conversationPanel}>
-            <div className="conversation-heading"><h2><span className="eyebrow">Conversation</span><span className="conversation-name conversation-name-momo">Momo</span><span className="conversation-separator">·</span><span className="conversation-name conversation-name-bobby">Bobby</span><span className="conversation-separator">·</span><span className="conversation-name conversation-name-sam">Sam</span></h2><div className={busy ? "live-indicator active" : "live-indicator"}>{busy ? `Round ${activeRound ?? "…"} live` : concluded ? "Session concluded" : "Sam has the floor"}</div></div>
+            <div className="conversation-heading"><h2><span className="eyebrow">Conversation</span><span className="conversation-name conversation-name-momo">Momo</span><span className="conversation-separator">·</span><span className="conversation-name conversation-name-bobby">Bobby</span><span className="conversation-separator">·</span><span className="conversation-name conversation-name-sam">Sam</span></h2><div className={busy ? "live-indicator active" : concluded ? "live-indicator" : "live-indicator sam-floor"}>{busy ? `Round ${activeRound ?? "…"} live` : concluded ? "Session concluded" : "Sam has the floor"}</div></div>
             <div className="conversation-layout">
               <div className="transcript" ref={transcriptViewport} aria-live="polite">
                 {conversationMessages.map((message) => <TranscriptMessage key={message.id} message={message} />)}
+                {digestStatusMessages.map((message) => <TranscriptMessage key={message.id} message={message} />)}
               </div>
 
               <aside className="host-panel" aria-label="Sam's host controls">

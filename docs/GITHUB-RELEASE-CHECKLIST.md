@@ -30,12 +30,13 @@
 ## Latest prepared-archive verification (2026-07-21)
 
 - [x] 46 backend tests passed.
-- [x] Frontend Vitest suite passed.
+- [x] Frontend Vitest suite passed (2 tests, including ephemeral digest-status message derivation).
 - [x] Frontend production build passed.
 - [x] Candidate source files passed checks for common OpenAI, Google, and Anthropic key formats, private-key blocks, and developer-specific absolute paths.
 - [x] Archive entry inspection found no `.env.local`, runtime database, uploaded source, transcript, log, cache, dependency directory, or compiled build output.
 - [x] `.env.example`, README, logo, backend source, frontend source, tests, skills, and documentation are present.
 - [x] Current frontend source includes the Sam-floor composer highlight, stage-specific blue closeout progress messages, and save/download-before-evaluation ordering.
+- [x] Current frontend source includes the highlighted header floor indicator and non-persistent topic/conversation digestion cards.
 
 This verifies the prepared local archive only. A GitHub history scan remains required after repository initialization and before publication.
 

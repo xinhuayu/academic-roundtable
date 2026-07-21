@@ -103,6 +103,8 @@ These are acceptable MVP boundaries when stated honestly.
 - The transcript is visually dominant and uses internal scrolling, preventing token streaming from moving Sam's controls off-screen.
 - Sam's composer remains separate and reachable for interruption.
 - Sam's composer receives a restrained active-floor highlight when the AIs are waiting for the host.
+- The top-right Sam-floor indicator receives the same visible active-state emphasis.
+- Topic/conversation digestion is visible through ephemeral System transcript cards that never enter persistence, model context, summaries, or exports.
 - Participant-name highlighting improves conversational scanning.
 - Background knowledge is visually separated from the core response.
 - Digests sit below the main conversation instead of competing in side frames.

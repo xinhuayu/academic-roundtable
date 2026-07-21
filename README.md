@@ -57,7 +57,9 @@ flowchart LR
 - Sources-only mode or labeled internal background knowledge
 - Conversation-first rolling interface with persistent host controls
 - Highlighted Sam composer whenever Sam has the floor
+- Highlighted top-right **Sam has the floor** indicator
 - Provider health and background-job progress
+- Temporary local System cards for active Topic Digest and Conversation Digest work; these disappear on completion and are never stored or exported
 - Blue closeout progress messages that distinguish final-summary and one-page-summary processing
 - Markdown, JSON, and ZIP session exports after closure
 - An **End** action that interrupts generation and opens closeout immediately
