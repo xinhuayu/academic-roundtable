@@ -6,13 +6,13 @@ const speakerMeta: Record<Speaker, { monogram: string; subtitle: string }> = {
   Momo: { monogram: "M", subtitle: "tests and challenges" },
   Bobby: { monogram: "B", subtitle: "develops the case" },
   Sam: { monogram: "S", subtitle: "academic host" },
-  System: { monogram: "âˆ´", subtitle: "roundtable recap" },
+  System: { monogram: "∴", subtitle: "roundtable recap" },
 };
 
 function formatDigest(value: unknown): string {
   if (!value) return "Not developed yet.";
   if (typeof value === "string") return value || "Not developed yet.";
-  if (Array.isArray(value)) return value.length ? value.join(" Â· ") : "â€”";
+  if (Array.isArray(value)) return value.length ? value.join(" · ") : "—";
   return JSON.stringify(value, null, 2);
 }
 
@@ -101,7 +101,7 @@ function TranscriptMessage({ message }: { message: Message }) {
           <div><strong>{message.speaker}</strong><span>{meta.subtitle}</span></div>
           {message.status !== "complete" && <Badge tone="warning">{message.status}</Badge>}
         </header>
-        <div className="message-content">{message.content ? <FormattedMessageContent text={message.content} breakSamQuestions={message.speaker === "Momo" || message.speaker === "Bobby"} /> : <span className="thinking">thinkingâ€¦</span>}</div>
+        <div className="message-content">{message.content ? <FormattedMessageContent text={message.content} breakSamQuestions={message.speaker === "Momo" || message.speaker === "Bobby"} /> : <span className="thinking">thinking…</span>}</div>
       </div>
     </article>
   );
@@ -126,7 +126,7 @@ function NewSessionForm({
       onCreate(topic.trim(), goal.trim());
     }}>
       <label>Roundtable topic<textarea value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="e.g., When can an observational estimate support a causal interpretation?" rows={3} /></label>
-      <label>Samâ€™s learning goal<textarea value={goal} onChange={(event) => setGoal(event.target.value)} rows={2} /></label>
+      <label>Sam’s learning goal<textarea value={goal} onChange={(event) => setGoal(event.target.value)} rows={2} /></label>
       <p className="retention-warning">This app keeps one local roundtable at a time.</p>
       <button className="button button-primary" disabled={!canSubmit}>Start roundtable</button>
     </form>
@@ -160,7 +160,7 @@ function LearningEvaluationPanel({
     setDraft((current) => ({ ...current, [field]: value }));
   };
   const displayValue = (value: unknown) => {
-    if (value === null || value === undefined) return "â€”";
+    if (value === null || value === undefined) return "—";
     if (typeof value === "object") return JSON.stringify(value);
     return String(value);
   };
@@ -191,11 +191,11 @@ function LearningEvaluationPanel({
                 Score
                 <select value={rating.score ?? ""} onChange={(event) => updateRating(name, "score", event.target.value ? Number(event.target.value) : null)}>
                   <option value="">Not scored</option>
-                  <option value="1">1 Â· Counterproductive</option>
-                  <option value="2">2 Â· Weak</option>
-                  <option value="3">3 Â· Adequate</option>
-                  <option value="4">4 Â· Strong</option>
-                  <option value="5">5 Â· Exceptional</option>
+                  <option value="1">1 · Counterproductive</option>
+                  <option value="2">2 · Weak</option>
+                  <option value="3">3 · Adequate</option>
+                  <option value="4">4 · Strong</option>
+                  <option value="5">5 · Exceptional</option>
                 </select>
               </label>
               <label>
@@ -225,8 +225,8 @@ function LearningEvaluationPanel({
       </details>
 
       <div className="evaluation-actions">
-        <span>{scored} of {dimensions} dimensions scored{bundle.saved ? " Â· saved evaluation" : ""}</span>
-        <button className="button button-primary" type="button" disabled={busy} onClick={() => onSave(draft)}>{busy ? "Savingâ€¦" : "Save evaluation"}</button>
+        <span>{scored} of {dimensions} dimensions scored{bundle.saved ? " · saved evaluation" : ""}</span>
+        <button className="button button-primary" type="button" disabled={busy} onClick={() => onSave(draft)}>{busy ? "Saving…" : "Save evaluation"}</button>
       </div>
     </section>
   );
@@ -537,9 +537,9 @@ function App() {
       ) : concluded ? (
         <main className="close-session-page">
           <section className="close-session-card">
-            <div className="close-icon">âœ“</div>
+            <div className="close-icon">✓</div>
             <div className="eyebrow">Session closeout</div>
-            <h1>{session.state === "CLOSING" ? "Preparing your final recordâ€¦" : summaryCancelled ? "Session ended Â· summary skipped" : summaryInterrupted ? "Session ended Â· summary interrupted" : "Session concluded"}</h1>
+            <h1>{session.state === "CLOSING" ? "Preparing your final record…" : summaryCancelled ? "Session ended · summary skipped" : summaryInterrupted ? "Session ended · summary interrupted" : "Session concluded"}</h1>
             <p>{session.state === "CLOSING" ? "The final summary is being assembled from the retained digest history. You may cancel it and keep the transcript and existing digests." : summaryCancelled ? "Summary generation was cancelled. Your transcript, existing digests, and sources remain available below until you start another roundtable." : summaryInterrupted ? "The application restarted before summary generation finished. The transcript and all completed digests remain available below." : "Your complete conversation is ready to download. Save anything you want to keep before starting another roundtable."}</p>
             {error && <div className="error-banner"><span>{error}</span><button onClick={() => setError("")}>Dismiss</button></div>}
             <div className="close-stats">
@@ -553,7 +553,7 @@ function App() {
             {session.state === "CLOSED" && !evaluation && (
               <div className="evaluation-launch">
                 <div><strong>{session.learning_evaluation ? "Learning evaluation saved" : "Reflect on the learning"}</strong><span>{session.learning_evaluation ? `Weighted score: ${session.learning_evaluation.report.human_review?.weighted_score ?? "incomplete"} / 5` : "Evaluate focus, intellectual progress, readability, and what you learned."}</span></div>
-                <button className="button button-secondary" disabled={evaluationBusy} onClick={openEvaluation}>{evaluationBusy ? "Openingâ€¦" : session.learning_evaluation ? "View or update evaluation" : "Evaluate learning"}</button>
+                <button className="button button-secondary" disabled={evaluationBusy} onClick={openEvaluation}>{evaluationBusy ? "Opening…" : session.learning_evaluation ? "View or update evaluation" : "Evaluate learning"}</button>
               </div>
             )}
             {session.state === "CLOSED" && evaluation && <LearningEvaluationPanel key={evaluation.updated_at ?? "new-evaluation"} bundle={evaluation} busy={evaluationBusy} onSave={saveEvaluation} onClose={() => setEvaluation(null)} />}
@@ -563,9 +563,9 @@ function App() {
                 <a className="button button-secondary" href={exportUrl(session.id, "markdown")} download onClick={() => setRecordDownloaded(true)}>Download readable transcript</a>
                 {onePageSummary ? (
                   <a className="button button-ghost" href={exportUrl(session.id, "one_page_summary")} download onClick={() => setRecordDownloaded(true)}>Download one-page summary</a>
-                ) : <button className="button button-ghost" disabled>Preparing one-page summaryâ€¦</button>}
+                ) : <button className="button button-ghost" disabled>Preparing one-page summary…</button>}
                 <a className="button button-ghost" href={exportUrl(session.id, "json")} download onClick={() => setRecordDownloaded(true)}>Download structured JSON</a>
-              </> : <><button className="button button-primary" disabled>Preparing downloadsâ€¦</button><button className="button button-stop" onClick={cancelSummary}>Cancel summary</button></>}
+              </> : <><button className="button button-primary" disabled>Preparing downloads…</button><button className="button button-stop" onClick={cancelSummary}>Cancel summary</button></>}
             </div>
             {confirmNewSession && (
               <div className="new-session-confirm" role="dialog" aria-labelledby="new-session-confirm-title" aria-modal="true">
@@ -580,7 +580,7 @@ function App() {
               </div>
             )}
             <div className="new-session-handoff">
-              <button className="button button-primary new-roundtable-button" onClick={requestNewRoundtable}>Start a new roundtable â†’</button>
+              <button className="button button-primary new-roundtable-button" onClick={requestNewRoundtable}>Start a new roundtable</button>
               <small>{recordDownloaded ? "A download was requested. Starting the next table now clears this local session." : "Downloading, reading the summary, and evaluating learning are optional. You may proceed directly to a new table."}</small>
             </div>
           </section>
@@ -596,24 +596,24 @@ function App() {
           {activeJobs.length > 0 && <div className="job-strip">{activeJobs.slice(0, 2).map((job: Job) => <div key={job.id}><span className="spinner" /><strong>{job.kind.replaceAll("_", " ")}</strong><span>{job.detail}</span></div>)}</div>}
 
           <section className={`conversation-card ${busy ? "is-live" : ""}`} ref={conversationPanel}>
-            <div className="conversation-heading"><h2><span className="eyebrow">Conversation</span><span className="conversation-name conversation-name-momo">Momo</span><span className="conversation-separator">Â·</span><span className="conversation-name conversation-name-bobby">Bobby</span><span className="conversation-separator">Â·</span><span className="conversation-name conversation-name-sam">Sam</span></h2><div className={busy ? "live-indicator active" : "live-indicator"}>{busy ? `Round ${activeRound ?? "â€¦"} live` : concluded ? "Session concluded" : "Sam has the floor"}</div></div>
+            <div className="conversation-heading"><h2><span className="eyebrow">Conversation</span><span className="conversation-name conversation-name-momo">Momo</span><span className="conversation-separator">·</span><span className="conversation-name conversation-name-bobby">Bobby</span><span className="conversation-separator">·</span><span className="conversation-name conversation-name-sam">Sam</span></h2><div className={busy ? "live-indicator active" : "live-indicator"}>{busy ? `Round ${activeRound ?? "…"} live` : concluded ? "Session concluded" : "Sam has the floor"}</div></div>
             <div className="conversation-layout">
               <div className="transcript" ref={transcriptViewport} aria-live="polite">
                 {conversationMessages.map((message) => <TranscriptMessage key={message.id} message={message} />)}
               </div>
 
               <aside className="host-panel" aria-label="Sam's host controls">
-                <div className="host-panel-heading"><div className="avatar">S</div><strong>Sam</strong><span className="host-label-separator" aria-hidden="true">Â·</span><small>Guide the roundtable</small></div>
+                <div className="host-panel-heading"><div className="avatar">S</div><strong>Sam</strong><span className="host-label-separator" aria-hidden="true">·</span><small>Guide the roundtable</small></div>
                 <form onSubmit={sendMessage} className="composer">
                   <div className="composer-topline"><label>Address <select value={target} onChange={(event) => setTarget(event.target.value)}><option value="roundtable">Automatic</option><option value="Momo">Momo</option><option value="Bobby">Bobby</option><option value="both">Both independently</option></select></label><span>Names and @mentions override</span></div>
                   <div className="composer-actions">
                     {!concluded && <div className="quick-actions"><button type="button" onClick={requestRecap}>Recap</button><button type="button" onClick={() => setComposer("What evidence would distinguish these explanations?")}>Evidence</button><button type="button" onClick={() => setComposer(`Return to the active question: ${session.active_question}`)}>Refocus</button></div>}
                     <button type="submit" className="button button-primary composer-submit" disabled={concluded || !composer.trim()}>{concluded ? "Ended" : "Answer"}</button>
                   </div>
-                  <textarea ref={composerInput} disabled={concluded} value={composer} onChange={(event) => setComposer(event.target.value)} placeholder={concluded ? "This session has concluded. The complete record is ready to export." : hasSamDirection ? "Ask, challenge, judge, or redirectâ€¦" : "Greet Momo and Bobby, then set the first scientific directionâ€¦"} rows={8} />
+                  <textarea ref={composerInput} disabled={concluded} value={composer} onChange={(event) => setComposer(event.target.value)} placeholder={concluded ? "This session has concluded. The complete record is ready to export." : hasSamDirection ? "Ask, challenge, judge, or redirect…" : "Greet Momo and Bobby, then set the first scientific direction…"} rows={8} />
                 </form>
                 <div className="segment-controls">
-                  <label>AI rounds <select value={automaticRoundVariation ? "auto" : String(rounds)} onChange={(event) => { const value = event.target.value; setAutomaticRoundVariation(value === "auto"); if (value !== "auto") setRounds(Number(value)); }} disabled={busy}><option value="auto">Auto Â· usually 2</option>{[2, 3, 4, 5].map((value) => <option key={value} value={value}>{value} fixed</option>)}</select></label>
+                  <label>AI rounds <select value={automaticRoundVariation ? "auto" : String(rounds)} onChange={(event) => { const value = event.target.value; setAutomaticRoundVariation(value === "auto"); if (value !== "auto") setRounds(Number(value)); }} disabled={busy}><option value="auto">Auto · usually 2</option>{[2, 3, 4, 5].map((value) => <option key={value} value={value}>{value} fixed</option>)}</select></label>
                   <button className="button button-stop" onClick={interrupt} disabled={!busy}>Interrupt AI</button>
                   <button className="button button-secondary" onClick={() => startDiscussion(undefined, undefined, true)} disabled={busy || concluded || !hasSamDirection} title="Continue without answering the AI's question">Let them continue</button>
                 </div>
@@ -623,7 +623,7 @@ function App() {
 
           <section className="below-grid">
             <article className="info-card"><div className="section-heading"><span className="eyebrow">Topic digest</span><Badge>{String(session.topic_digest.status ?? "active")}</Badge></div><h3>{String(session.topic_digest.central_question ?? session.topic)}</h3><dl className="digest-list"><div><dt>Key concepts</dt><dd>{formatDigest(session.topic_digest.key_concepts)}</dd></div><div><dt>Scope</dt><dd>{formatDigest(session.topic_digest.scope)}</dd></div><div><dt>Perspectives</dt><dd>{formatDigest(session.topic_digest.theoretical_perspectives)}</dd></div></dl></article>
-            <article className="info-card summary-card"><div className="section-heading"><span className="eyebrow">Summary history</span><Badge>{session.summary_history?.length ? `${session.summary_history.length} saved` : "pending"}</Badge></div><dl className="digest-list"><div><dt>Active thread</dt><dd>{formatDigest(session.conversation_digest.active_question || session.active_question)}</dd></div><div><dt>Agreements</dt><dd>{formatDigest(session.conversation_digest.agreements)}</dd></div><div><dt>Disagreements</dt><dd>{formatDigest(session.conversation_digest.disagreements)}</dd></div><div><dt>Open questions</dt><dd>{formatDigest(session.conversation_digest.open_questions)}</dd></div></dl>{recapMessages.map((message) => <div className="visible-recap" key={message.id}><strong>{message.metadata.kind === "final_summary" ? "Final summary" : "Recap"}</strong><p><HighlightMentions text={message.content} /></p></div>)}{!concluded && <button className="text-button" onClick={requestRecap}>Summarize the conversation so far â†’</button>}</article>
+            <article className="info-card summary-card"><div className="section-heading"><span className="eyebrow">Summary history</span><Badge>{session.summary_history?.length ? `${session.summary_history.length} saved` : "pending"}</Badge></div><dl className="digest-list"><div><dt>Active thread</dt><dd>{formatDigest(session.conversation_digest.active_question || session.active_question)}</dd></div><div><dt>Agreements</dt><dd>{formatDigest(session.conversation_digest.agreements)}</dd></div><div><dt>Disagreements</dt><dd>{formatDigest(session.conversation_digest.disagreements)}</dd></div><div><dt>Open questions</dt><dd>{formatDigest(session.conversation_digest.open_questions)}</dd></div></dl>{recapMessages.map((message) => <div className="visible-recap" key={message.id}><strong>{message.metadata.kind === "final_summary" ? "Final summary" : "Recap"}</strong><p><HighlightMentions text={message.content} /></p></div>)}{!concluded && <button className="text-button" onClick={requestRecap}>Summarize the conversation so far →</button>}</article>
           </section>
 
           <section className="evidence-card">
@@ -634,7 +634,7 @@ function App() {
             <label className="upload-zone">
               <input type="file" accept=".pdf,.txt,.md,.markdown" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} />
               <span>+ Add a source</span>
-              <small>PDF, TXT, or Markdown Â· 30 MB</small>
+              <small>PDF, TXT, or Markdown · 30 MB</small>
             </label>
             {!pdfDependenciesReady && documentDependencies && (
               <div className="dependency-warning">
@@ -642,8 +642,8 @@ function App() {
                 <div>Detected: PyMuPDF {documentDependencies.pymupdf_version || "not found"}, pdfplumber {documentDependencies.pdfplumber_version || "not found"}.</div>
               </div>
             )}
-            <div className="document-list">{session.documents.map((document) => <div key={document.id} className="document-item"><strong>{document.filename}</strong><small>{document.status}{document.error ? ` Â· ${document.error}` : ""}</small></div>)}</div>
-            <div className="settings"><label><input type="checkbox" checked={session.sources_only} onChange={(event) => toggleSetting("sources_only", event.target.checked)} /> Sources only</label><label><input type="checkbox" checked={session.periodic_summary} onChange={(event) => toggleSetting("periodic_summary", event.target.checked)} /> Periodic recap every 5â€“6 rounds</label></div>
+            <div className="document-list">{session.documents.map((document) => <div key={document.id} className="document-item"><strong>{document.filename}</strong><small>{document.status}{document.error ? ` · ${document.error}` : ""}</small></div>)}</div>
+            <div className="settings"><label><input type="checkbox" checked={session.sources_only} onChange={(event) => toggleSetting("sources_only", event.target.checked)} /> Sources only</label><label><input type="checkbox" checked={session.periodic_summary} onChange={(event) => toggleSetting("periodic_summary", event.target.checked)} /> Periodic recap every 5–6 rounds</label></div>
           </section>
         </main>
       )}
