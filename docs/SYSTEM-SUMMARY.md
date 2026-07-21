@@ -47,7 +47,7 @@ During a session:
 - `@momo`, `@bobby`, or a direct name routes the first answer to that participant.
 - An undirected message randomly chooses the first respondent.
 - Mentioning both AIs requests independent initial answers before ordinary debate resumes.
-- AI segments contain two to five rounds, with one contribution from each AI per completed round.
+- AI segments contain two to five rounds, with one contribution from each AI per completed round. Automatic mode chooses two rounds 80% of the time and three rounds 20% of the time; fixed selections remain exact.
 - An AI can ask Sam one focused question at a scheduled checkpoint; Sam can answer, redirect, or click **Let them continue**.
 - Interrupt stops the active segment without hiding already streamed partial text. Sam may then speak or continue for more rounds.
 - Recaps can be requested in natural language or from the interface and appear below the transcript.
@@ -188,7 +188,7 @@ This is still a local MVP, not an internet-facing secure service. Authentication
 
 As of the audit date:
 
-- 24 backend tests pass.
+- 25 backend tests pass.
 - The test suite covers rounds, recent-history retention, mention routing, greeting exclusion, digest history, FTS locators, single-session purging, host-deferred continuation, first-token timeout recovery, immediate stalled-stream cancellation with partial-text retention, restart reconciliation, session-task cancellation, bounded prompt context, close/interrupt lifecycle safety, and final-summary cancellation.
 - Frontend type-check and production-build verification is part of the release checklist.
 - Live provider checks remain optional because they consume API capacity and depend on external connectivity.

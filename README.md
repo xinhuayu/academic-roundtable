@@ -16,8 +16,8 @@ Its guiding principle is **deep conversations for better learning**. The AIs deb
 
 Ordinary multi-agent chats tend to become long parallel monologues. Academic Roundtable instead treats focus, human authority, and readable disagreement as system behavior:
 
-- Momo and Bobby respond to Sam and engage each other's claims.
-- AI-only discussion is limited to two to five rounds at a time.
+- Momo develops mechanisms and integrative explanations; Bobby more persistently stress-tests Momo's and Sam's assumptions, evidence, alternatives, and boundary conditions. Both answer Sam directly and pursue depth without turning concise contributions into mini-essays.
+- AI-only discussion is limited to two to five rounds at a time. Automatic mode uses two rounds by default, with an occasional three-round variation; Sam may select an exact fixed length.
 - Sam can interrupt at any moment without losing already streamed text.
 - Live turns use the Topic Digest, latest Conversation Digest, active question, and five recent rounds.
 - Uploaded sources can ground the discussion, while allowed model knowledge is labeled as background knowledge.
@@ -180,7 +180,7 @@ Optional live-provider smoke test (uses API capacity):
 .\.venv\Scripts\python.exe .\scripts\smoke_generation.py
 ```
 
-The current deterministic backend suite contains 24 passing tests. The built-in learning-quality workflow and optional developer comparison tools are documented in [docs/LEARNING-QUALITY-EVALUATION.md](docs/LEARNING-QUALITY-EVALUATION.md). See [docs/CRITICAL-REVIEW.md](docs/CRITICAL-REVIEW.md) for the prioritized agent-system review and [docs/INDEPENDENT-AUDIT.md](docs/INDEPENDENT-AUDIT.md) for the broader audit.
+The current deterministic backend suite contains 25 passing tests. The built-in learning-quality workflow and optional developer comparison tools are documented in [docs/LEARNING-QUALITY-EVALUATION.md](docs/LEARNING-QUALITY-EVALUATION.md). See [docs/CRITICAL-REVIEW.md](docs/CRITICAL-REVIEW.md) for the prioritized agent-system review and [docs/INDEPENDENT-AUDIT.md](docs/INDEPENDENT-AUDIT.md) for the broader audit.
 
 ## Conversation memory
 

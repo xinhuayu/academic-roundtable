@@ -30,7 +30,7 @@ function Participant({ health }: { health: ProviderHealth }) {
   );
 }
 
-function HighlightMentions({ text }: { text: string }) {
+function MentionText({ text }: { text: string }) {
   return <>{text.split(/(@?(?:Momo|Bobby|Sam))\b/gi).map((part, index) => {
     const name = part.replace(/^@/, "").toLowerCase();
     if (!["momo", "bobby", "sam"].includes(name)) return part;
@@ -38,31 +38,51 @@ function HighlightMentions({ text }: { text: string }) {
   })}</>;
 }
 
-function FormattedMessageContent({ text }: { text: string }) {
-  const parts = text.split(/(\*{0,2}(?:Background knowledge|Inference|Speculation):\*{0,2})/gi);
+function HighlightMentions({ text, breakSamQuestions = false }: { text: string; breakSamQuestions?: boolean }) {
+  if (!breakSamQuestions) return <MentionText text={text} />;
+  return <>{text.split(/(\bSam[,:]\s*[^\n?]*\?)/gi).map((part, index) => {
+    if (/^Sam[,:]\s*[^\n?]*\?$/i.test(part.trim())) {
+      return <span className="sam-question" key={`sam-question-${index}`}><MentionText text={part.trim()} /></span>;
+    }
+    return part ? <MentionText text={part} key={`question-text-${index}`} /> : null;
+  })}</>;
+}
+
+function FormattedMessageContent({ text, breakSamQuestions = false }: { text: string; breakSamQuestions?: boolean }) {
+  const parts = text.split(/(\*{0,2}(?:Background knowledge|Background information|Inference|Speculation):\*{0,2})/gi);
   const rendered: React.ReactNode[] = [];
   for (let index = 0; index < parts.length; index += 1) {
     const part = parts[index];
-    const marker = part.match(/^\*{0,2}(Background knowledge|Inference|Speculation):\*{0,2}$/i);
+    const marker = part.match(/^\*{0,2}(Background knowledge|Background information|Inference|Speculation):\*{0,2}$/i);
     if (!marker) {
-      if (part) rendered.push(<HighlightMentions text={part} key={`text-${index}`} />);
+      if (part) rendered.push(<HighlightMentions text={part} breakSamQuestions={breakSamQuestions} key={`text-${index}`} />);
       continue;
     }
     const label = marker[1];
     const content = parts[index + 1] ?? "";
     index += 1;
-    if (label.toLowerCase() === "background knowledge") {
+    if (label.toLowerCase().startsWith("background")) {
+      const questionIndex = breakSamQuestions ? content.search(/\bSam[,:]\s*[^\n?]*\?/i) : -1;
+      const backgroundContent = (questionIndex >= 0 ? content.slice(0, questionIndex) : content).trim();
+      const questionContent = questionIndex >= 0 ? content.slice(questionIndex).trim() : "";
       rendered.push(
         <span className="background-knowledge" key={`background-${index}`}>
-          <strong>Background knowledge:</strong>
-          <HighlightMentions text={content.trim()} />
+          <strong>{label}:</strong>
+          <HighlightMentions text={backgroundContent} />
         </span>,
       );
+      if (questionContent) {
+        rendered.push(
+          <span className="after-background-question" key={`background-question-${index}`}>
+            <HighlightMentions text={questionContent} breakSamQuestions />
+          </span>,
+        );
+      }
     } else {
       rendered.push(
         <span key={`provenance-${index}`}>
           <strong className="provenance-label">{label}:</strong>
-          <HighlightMentions text={content} />
+          <HighlightMentions text={content} breakSamQuestions={breakSamQuestions} />
         </span>,
       );
     }
@@ -80,7 +100,7 @@ function TranscriptMessage({ message }: { message: Message }) {
           <div><strong>{message.speaker}</strong><span>{meta.subtitle}</span></div>
           {message.status !== "complete" && <Badge tone="warning">{message.status}</Badge>}
         </header>
-        <div className="message-content">{message.content ? <FormattedMessageContent text={message.content} /> : <span className="thinking">thinking…</span>}</div>
+        <div className="message-content">{message.content ? <FormattedMessageContent text={message.content} breakSamQuestions={message.speaker === "Momo" || message.speaker === "Bobby"} /> : <span className="thinking">thinking…</span>}</div>
       </div>
     </article>
   );
@@ -91,8 +111,8 @@ function NewSessionForm({ onCreate, busy }: { onCreate: (topic: string, goal: st
   const [goal, setGoal] = useState("Explore the topic deeply, compare explanations, and identify what remains uncertain.");
   return (
     <form className="new-session" onSubmit={(event) => { event.preventDefault(); if (topic.trim()) onCreate(topic.trim(), goal.trim()); }}>
-      <label>Roundtable topic<textarea value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="e.g., When can an observational estimate support a causal interpretation?" rows={4} /></label>
-      <label>Sam’s learning goal<textarea value={goal} onChange={(event) => setGoal(event.target.value)} rows={3} /></label>
+      <label>Roundtable topic<textarea value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="e.g., When can an observational estimate support a causal interpretation?" rows={3} /></label>
+      <label>Sam’s learning goal<textarea value={goal} onChange={(event) => setGoal(event.target.value)} rows={2} /></label>
       <p className="retention-warning">This app keeps one local roundtable at a time. The closeout page offers downloads before the next table begins.</p>
       <button className="button button-primary" disabled={busy || topic.trim().length < 3}>Start roundtable</button>
     </form>
@@ -205,7 +225,8 @@ function App() {
   const [error, setError] = useState("");
   const [composer, setComposer] = useState("");
   const [target, setTarget] = useState("roundtable");
-  const [rounds, setRounds] = useState(3);
+  const [rounds, setRounds] = useState(2);
+  const [automaticRoundVariation, setAutomaticRoundVariation] = useState(true);
   const [activeRound, setActiveRound] = useState<number | null>(null);
   const [recordDownloaded, setRecordDownloaded] = useState(false);
   const [evaluation, setEvaluation] = useState<LearningEvaluationBundle | null>(null);
@@ -221,7 +242,6 @@ function App() {
     if (!id) return;
     const current = await api.getSession(id);
     setSession(current);
-    setRounds(current.rounds_per_segment);
   };
 
   useEffect(() => {
@@ -275,11 +295,12 @@ function App() {
   const recapMessages = useMemo(() => session?.messages.filter((message) => message.speaker === "System" && ["recap", "final_summary"].includes(String(message.metadata.kind))) ?? [], [session?.messages]);
   const hasSamDirection = useMemo(() => session?.messages.some((message) => message.speaker === "Sam" && message.metadata.kind !== "session_opening") ?? false, [session?.messages]);
   const concluded = session?.state === "CLOSING" || session?.state === "CLOSED";
+  const chooseRoundCount = () => automaticRoundVariation ? (Math.random() < 0.2 ? 3 : 2) : rounds;
 
   const createSession = async (topic: string, learningGoal: string) => {
     setBusy(true); setError("");
     try {
-      const created = await api.createSession({ topic, learning_goal: learningGoal, rounds_per_segment: rounds, sources_only: false, periodic_summary: true });
+      const created = await api.createSession({ topic, learning_goal: learningGoal, rounds_per_segment: automaticRoundVariation ? 2 : rounds, sources_only: false, periodic_summary: true });
       setSession(created);
     } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); }
   };
@@ -301,12 +322,13 @@ function App() {
     if (event.type === "provider_error") setError(`${event.speaker}: ${event.message}`);
   };
 
-  const startDiscussion = async (requestedRounds = rounds, startingSpeaker?: "Momo" | "Bobby", continueWithoutSam = false) => {
+  const startDiscussion = async (requestedRounds?: number, startingSpeaker?: "Momo" | "Bobby", continueWithoutSam = false) => {
     if (!session || busy) return;
+    const segmentRounds = requestedRounds ?? chooseRoundCount();
     setBusy(true); setError("");
     const streamState: { tempId?: string } = {};
     try {
-      await api.streamSegment(session.id, requestedRounds, (event) => handleStreamEvent(event, streamState), startingSpeaker, continueWithoutSam);
+      await api.streamSegment(session.id, segmentRounds, (event) => handleStreamEvent(event, streamState), startingSpeaker, continueWithoutSam);
       await refreshSession(session.id);
     } catch (cause) {
       if (!discardedSessionIds.current.has(session.id)) {
@@ -329,11 +351,12 @@ function App() {
     if (!session || !composer.trim()) return;
     const content = composer.trim(); setComposer(""); setError("");
     try {
-      const action = await api.message(session.id, { content, target, continue_rounds: rounds });
+      const plannedRounds = chooseRoundCount();
+      const action = await api.message(session.id, { content, target, continue_rounds: plannedRounds });
       await refreshSession(session.id);
       if (action.suggested_action === "start_segment") {
         const speaker = action.starting_speaker === "Momo" || action.starting_speaker === "Bobby" ? action.starting_speaker : undefined;
-        const continueRounds = Number(action.continue_rounds ?? rounds);
+        const continueRounds = Number(action.continue_rounds ?? plannedRounds);
         if (busy) pendingStart.current = { rounds: continueRounds, speaker };
         else await startDiscussion(continueRounds, speaker);
       }
@@ -462,10 +485,6 @@ function App() {
                 <a className="button button-ghost" href={exportUrl(session.id, "json")} download onClick={() => setRecordDownloaded(true)}>Download structured JSON</a>
               </> : <><button className="button button-primary" disabled>Preparing downloads…</button><button className="button button-stop" onClick={cancelSummary}>Cancel summary</button></>}
             </div>
-            <div className="new-session-handoff">
-              <button className="text-button" onClick={requestNewRoundtable}>Start a new roundtable →</button>
-              <small>{recordDownloaded ? "A download was requested. Starting the next table now clears this local session." : "Downloading, reading the summary, and evaluating learning are optional. You may proceed directly to a new table."}</small>
-            </div>
             {confirmNewSession && (
               <div className="new-session-confirm" role="dialog" aria-labelledby="new-session-confirm-title" aria-modal="true">
                 <div>
@@ -478,6 +497,10 @@ function App() {
                 </div>
               </div>
             )}
+            <div className="new-session-handoff">
+              <button className="button button-primary new-roundtable-button" onClick={requestNewRoundtable}>Start a new roundtable →</button>
+              <small>{recordDownloaded ? "A download was requested. Starting the next table now clears this local session." : "Downloading, reading the summary, and evaluating learning are optional. You may proceed directly to a new table."}</small>
+            </div>
           </section>
         </main>
       ) : (
@@ -491,26 +514,26 @@ function App() {
           {activeJobs.length > 0 && <div className="job-strip">{activeJobs.slice(0, 2).map((job: Job) => <div key={job.id}><span className="spinner" /><strong>{job.kind.replaceAll("_", " ")}</strong><span>{job.detail}</span></div>)}</div>}
 
           <section className={`conversation-card ${busy ? "is-live" : ""}`} ref={conversationPanel}>
-            <div className="conversation-heading"><div><span className="eyebrow">Conversation</span><h2>Momo · Bobby · Sam</h2></div><div className={busy ? "live-indicator active" : "live-indicator"}>{busy ? `Round ${activeRound ?? "…"} live` : concluded ? "Session concluded" : "Sam has the floor"}</div></div>
+            <div className="conversation-heading"><h2><span className="eyebrow">Conversation</span><span className="conversation-name conversation-name-momo">Momo</span><span className="conversation-separator">·</span><span className="conversation-name conversation-name-bobby">Bobby</span><span className="conversation-separator">·</span><span className="conversation-name conversation-name-sam">Sam</span></h2><div className={busy ? "live-indicator active" : "live-indicator"}>{busy ? `Round ${activeRound ?? "…"} live` : concluded ? "Session concluded" : "Sam has the floor"}</div></div>
             <div className="conversation-layout">
               <div className="transcript" ref={transcriptViewport} aria-live="polite">
                 {conversationMessages.map((message) => <TranscriptMessage key={message.id} message={message} />)}
               </div>
 
               <aside className="host-panel" aria-label="Sam's host controls">
-                <div className="host-panel-heading"><div className="avatar">S</div><div><strong>Sam</strong><small>Guide the roundtable</small></div></div>
+                <div className="host-panel-heading"><div className="avatar">S</div><strong>Sam</strong><span className="host-label-separator" aria-hidden="true">·</span><small>Guide the roundtable</small></div>
                 <form onSubmit={sendMessage} className="composer">
                   <div className="composer-topline"><label>Address <select value={target} onChange={(event) => setTarget(event.target.value)}><option value="roundtable">Automatic</option><option value="Momo">Momo</option><option value="Bobby">Bobby</option><option value="both">Both independently</option></select></label><span>Names and @mentions override</span></div>
-                  <textarea ref={composerInput} disabled={concluded} value={composer} onChange={(event) => setComposer(event.target.value)} placeholder={concluded ? "This session has concluded. The complete record is ready to export." : hasSamDirection ? "Ask, challenge, judge, or redirect…" : "Greet Momo and Bobby, then set the first scientific direction…"} rows={8} />
                   <div className="composer-actions">
                     {!concluded && <div className="quick-actions"><button type="button" onClick={requestRecap}>Recap</button><button type="button" onClick={() => setComposer("What evidence would distinguish these explanations?")}>Evidence</button><button type="button" onClick={() => setComposer(`Return to the active question: ${session.active_question}`)}>Refocus</button></div>}
-                    <button className="button button-primary" disabled={concluded || !composer.trim()}>{concluded ? "Session ended" : "Send and continue"}</button>
+                    <button type="submit" className="button button-primary composer-submit" disabled={concluded || !composer.trim()}>{concluded ? "Ended" : "Answer"}</button>
                   </div>
+                  <textarea ref={composerInput} disabled={concluded} value={composer} onChange={(event) => setComposer(event.target.value)} placeholder={concluded ? "This session has concluded. The complete record is ready to export." : hasSamDirection ? "Ask, challenge, judge, or redirect…" : "Greet Momo and Bobby, then set the first scientific direction…"} rows={8} />
                 </form>
                 <div className="segment-controls">
-                  <label>AI rounds <select value={rounds} onChange={(event) => setRounds(Number(event.target.value))} disabled={busy}>{[2, 3, 4, 5].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+                  <label>AI rounds <select value={automaticRoundVariation ? "auto" : String(rounds)} onChange={(event) => { const value = event.target.value; setAutomaticRoundVariation(value === "auto"); if (value !== "auto") setRounds(Number(value)); }} disabled={busy}><option value="auto">Auto · usually 2</option>{[2, 3, 4, 5].map((value) => <option key={value} value={value}>{value} fixed</option>)}</select></label>
                   <button className="button button-stop" onClick={interrupt} disabled={!busy}>Interrupt AI</button>
-                  <button className="button button-secondary" onClick={() => startDiscussion(rounds, undefined, true)} disabled={busy || concluded || !hasSamDirection} title="Continue without answering the AI's question">Let them continue</button>
+                  <button className="button button-secondary" onClick={() => startDiscussion(undefined, undefined, true)} disabled={busy || concluded || !hasSamDirection} title="Continue without answering the AI's question">Let them continue</button>
                 </div>
               </aside>
             </div>

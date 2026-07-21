@@ -122,7 +122,7 @@ Before pushing to GitHub, scan the working tree and repository history for secre
 
 ## Verification evidence
 
-- Backend: **24 tests passed** after audit fixes, the agent-reliability increment, and the session-scoped learning-quality workflow.
+- Backend: **25 tests passed** after audit fixes, the agent-reliability increment, the session-scoped learning-quality workflow, and distinct-role/depth prompting.
 - Covered regression cases include first-token timeout recovery, immediate stalled-stream cancellation with partial-text retention, startup reconciliation, session-task cancellation, bounded context assembly, and preservation of `CLOSING` during interrupted stream cleanup.
 - Frontend: production type-check/build remains a required final verification gate whenever dependencies or UI code change.
 - Live-provider smoke test: intentionally not part of deterministic audit verification.

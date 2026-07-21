@@ -11,7 +11,7 @@ Participant = Literal["Sam", "Momo", "Bobby", "System"]
 class SessionCreate(BaseModel):
     topic: str = Field(min_length=3, max_length=1000)
     learning_goal: str = Field(default="Explore the topic deeply and critically", max_length=1500)
-    rounds_per_segment: int = Field(default=3, ge=2, le=5)
+    rounds_per_segment: int = Field(default=2, ge=2, le=5)
     sources_only: bool = False
     periodic_summary: bool = False
 

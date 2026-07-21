@@ -6,7 +6,9 @@ from pathlib import Path
 from app.adapters import GenerationRequest
 from app.config import ProviderConfig, Settings
 from app.database import Database
+from app.prompts import ACADEMIC_CONVERSATION_SKILL, PERSONAS
 from app.service import RoundtableService, infer_participant_target, parse_json_object
+from app.schemas import SessionCreate
 
 
 def make_db(tmp_path: Path) -> Database:
@@ -16,6 +18,7 @@ def make_db(tmp_path: Path) -> Database:
 
 
 def test_session_defaults_and_round_completion(tmp_path: Path) -> None:
+    assert SessionCreate(topic="Causal inference").rounds_per_segment == 2
     db = make_db(tmp_path)
     session = db.create_session("Causal inference", "Understand assumptions", 3, False, False)
     assert session["topic_digest"]["status"] == "provisional"
@@ -46,6 +49,13 @@ def test_recent_rounds_keep_sam_interventions(tmp_path: Path) -> None:
 def test_json_parser_handles_fenced_json() -> None:
     parsed = parse_json_object('```json\n{"active_question":"Why?"}\n```')
     assert parsed == {"active_question": "Why?"}
+
+
+def test_academic_roles_require_depth_and_distinct_critical_angles() -> None:
+    assert "Answer Sam's actual question" in ACADEMIC_CONVERSATION_SKILL
+    assert "one level deeper" in ACADEMIC_CONVERSATION_SKILL
+    assert "explanatory synthesizer" in PERSONAS["Momo"]
+    assert "Stress-test Momo's and Sam's claims" in PERSONAS["Bobby"]
 
 
 def test_interrupt_event_is_immediate(tmp_path: Path) -> None:

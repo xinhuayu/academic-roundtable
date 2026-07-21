@@ -42,7 +42,7 @@ class Database:
                     id TEXT PRIMARY KEY,
                     topic TEXT NOT NULL,
                     learning_goal TEXT NOT NULL,
-                    rounds_per_segment INTEGER NOT NULL DEFAULT 3,
+                    rounds_per_segment INTEGER NOT NULL DEFAULT 2,
                     sources_only INTEGER NOT NULL DEFAULT 0,
                     periodic_summary INTEGER NOT NULL DEFAULT 0,
                     state TEXT NOT NULL DEFAULT 'HUMAN_FLOOR',
