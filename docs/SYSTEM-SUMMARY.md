@@ -51,7 +51,7 @@ During a session:
 - An AI can ask Sam one focused question at a scheduled checkpoint; Sam can answer, redirect, or click **Let them continue**.
 - Interrupt stops the active segment without hiding already streamed partial text. Sam may then speak or continue for more rounds.
 - Recaps can be requested in natural language or from the interface and appear below the transcript.
-- The header **End** action or closing language interrupts generation, creates one brief AI farewell, and opens the download handoff. Final-summary generation can be cancelled without losing transcript or digest downloads.
+- The header **End** action or closing language interrupts generation, creates one brief AI farewell, and opens the download handoff. Final-summary and one-page Momo-authored learning summaries are generated at closeout; one-page download can be taken separately. Final-summary generation can be cancelled without losing transcript or digest downloads.
 
 The transcript uses a fixed-height rolling viewport. New streamed content scrolls inside that viewport rather than moving the whole page, keeping Sam's composer accessible.
 
@@ -83,7 +83,7 @@ FastAPI exposes session, message, segment, interrupt, recap, document, job, heal
 
 Momo and Bobby use separate configuration records and can target different OpenAI-compatible servers. The default template keeps Momo on OpenAI and connects Bobby to Gemini 3.1 Flash-Lite through Google's OpenAI-compatible Chat Completions endpoint. Each adapter supports either the Responses API or Chat Completions style. Both paths forward the request's reasoning effort, and provider failures are reported per participant.
 
-Reasoning, output allowances, and timeouts are task-aware. Live turns default to low reasoning and target 60–110 visible words. Momo receives 800 live completion tokens; Bobby receives 1,400 so Gemini's hidden reasoning does not consume the visible answer. Momo's OpenAI adapter handles source, topic, conversation, and final digests by default; these requests and learning evaluation explicitly use medium reasoning. A Chat Completions `finish_reason` of `length` is persisted as interrupted, reported to Sam, and stops the segment before the next AI speaks. Connection, first-token, stream-read, and total-turn deadlines are independently configurable per participant. The Gemini template allows 60 seconds for first output or an idle stream and 240 seconds for a complete live turn. Background section and whole-job deadlines are configured separately at 300 and 900 seconds. Sam's interrupt still cancels the active stream task immediately, retaining any partial response already received.
+Reasoning, output allowances, and timeouts are task-aware. Live turns default to low reasoning and target 60-110 visible words. Momo uses an 800-token base live allowance and Bobby uses 1,400; a 50% live-token and live-timeout multiplier applies during rounds. Momo's OpenAI adapter handles source, topic, conversation, and final digests by default; these requests and learning evaluation explicitly use medium reasoning. A Chat Completions `finish_reason` of `length` is persisted as interrupted, reported to Sam, and stops the segment before the next AI speaks. Connection, first-token, stream-read, and total-turn deadlines are independently configurable per participant. The Gemini template allows 60 seconds for first output or an idle stream and 240 seconds for a complete live turn. Background section and whole-job deadlines are configured separately at 300 and 900 seconds. Sam's interrupt still cancels the active stream task immediately, retaining any partial response already received.
 
 Returning the floor to Sam requires a complete final question explicitly addressed to Sam. A direct statement beginning with Sam's name, an incomplete question, or an earlier question followed by further analysis does not prematurely stop the AI segment.
 
@@ -117,7 +117,7 @@ Each prompt section also has an explicit input ceiling. Oversized material is vi
 ## Digestion policy
 
 - A provisional Topic Digest is created from the session topic.
-- Uploaded sources trigger page-aware extraction, section digestion, document synthesis, indexing, and Topic Digest refinement.
+- Uploaded sources trigger page-aware extraction, structural table extraction, figure-object detection cues, document synthesis, indexing, and Topic Digest refinement.
 - Without sources, the Topic Digest develops after several substantive exchanges.
 - A Conversation Digest is scheduled every configured five or six completed rounds; Sam's interruptions do not reset that counter.
 - Natural-language requests such as “summarize so far” or “let's recap” create an immediate visible digest.
@@ -139,7 +139,7 @@ stateDiagram-v2
     CLOSED --> [*]: downloads offered; next session may purge the record
 ```
 
-Closeout is coordinated with the active generation lock so interrupted text is persisted before the final summary snapshots history. Streaming cleanup cannot overwrite `CLOSING` or `CLOSED`. Sam may cancel summary work; the session then closes with its transcript and existing digests intact. At `CLOSED`, Sam may save a learning evaluation that is included in every export. Downloading, reviewing, and evaluating are optional: when warned about unsaved data, Sam can select **No, start new roundtable** to purge the old session and its evaluation and proceed immediately.
+Closeout is coordinated with the active generation lock so interrupted text is persisted before the final summary snapshots history. Streaming cleanup cannot overwrite `CLOSING` or `CLOSED`. Sam may cancel summary work; the session then closes with its transcript and existing digests intact. At `CLOSED`, Sam may also download a separate one-page Momo-authored learning summary that includes key concepts, main issues, strategies, and research priorities. Sam may save a learning evaluation included in every export. Downloading, reviewing, and evaluating are optional: when warned about unsaved data, Sam can select **No, start new roundtable** to purge the old session and its evaluation and proceed immediately.
 
 ## Functions and features
 
@@ -153,12 +153,13 @@ Closeout is coordinated with the active generation lock so interrupted text is p
 - Concise academic debate prompts, labeled background knowledge, and line-separated `Inference:` statements for readable provenance
 - Topic, conversation, requested, periodic, and final digests
 - Five-round raw-history retention in every live request
-- PDF/TXT/Markdown upload, extraction, FTS5 retrieval, and source synthesis
+- PDF/TXT/Markdown upload, extraction, FTS5 retrieval, and source synthesis (PyMuPDF + pdfplumber table extraction with pypdf fallback)
 - Sources-only mode and model-knowledge fallback mode
 - Fixed rolling transcript with visible host controls
 - Provider health and background-job progress
 - Complete Markdown, JSON, and ZIP exports after closure
 - Built-in closeout learning evaluation with automated diagnostics, Sam's evidence-backed rubric, and export inclusion
+- Momo-authored one-page closeout summary generated with the finalization lock and downloadable independently
 - Immediate **End**, cancellable final summary, and digest-based wrap-up fallback
 - One-session retention with guarded replacement and managed upload cleanup
 - Secret loading from ignored local environment files
@@ -169,7 +170,7 @@ Closeout is coordinated with the active generation lock so interrupted text is p
 - One retained session at a time
 - In-process jobs; no restart/resume queue
 - Lexical retrieval only; no embeddings or reranking
-- Text extraction only; no OCR for scanned PDFs
+- Table/figure-aware text extraction with no OCR for scanned PDFs
 - No automated retry/circuit-breaker layer
 - No formal claim graph, scoring dashboard, voice mode, or web literature search
 - No cross-session evaluation history; evaluation data is deleted with its single retained session

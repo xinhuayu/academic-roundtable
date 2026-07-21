@@ -25,11 +25,22 @@ Requirements: Python 3.11+, Node.js 20.19+ or 22.12+, and preferably pnpm.
 
 ```powershell
 Copy-Item .env.example .env.local
+.\.venv\Scripts\python.exe -m pip install pymupdf pdfplumber  # required for robust PDF table/figure extraction
 .\scripts\setup.ps1
 .\run.ps1
 ```
 
 Real API keys remain in `.env.local`, which is ignored by Git. The application stores runtime state in `data/`, also ignored.
+
+### PDF extraction validation
+
+The app uses PyMuPDF (`pymupdf`) + `pdfplumber` for richer table and figure-oriented extraction. You can quickly verify runtime readiness from the shell:
+
+```powershell
+.\.venv\Scripts\python.exe -c "from backend.app.documents import extract_dependency_health; print(extract_dependency_health())"
+```
+
+If either package is missing, PDF uploads are blocked and the backend returns an actionable message instructing you to install both packages before retrying.
 
 ## Test layers
 
@@ -38,6 +49,13 @@ Real API keys remain in `.env.local`, which is ignored by Git. The application s
 ```powershell
 $env:PYTHONPATH='backend'
 .\.venv\Scripts\python.exe -m pytest backend\tests -q
+```
+
+For a fast regression check focused on closeout exports and the new one-page summary path, run:
+
+```powershell
+$env:PYTHONPATH='backend'
+.\.venv\Scripts\python.exe -m pytest backend\tests\test_export_regression.py -q
 ```
 
 These tests must not call live LLM providers.

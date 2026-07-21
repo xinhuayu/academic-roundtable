@@ -16,6 +16,7 @@ from .prompts import (
     ACADEMIC_CONVERSATION_SKILL,
     DIGEST_SYSTEM_PROMPT,
     FINAL_SUMMARY_SYSTEM_PROMPT,
+    ONE_PAGE_SUMMARY_SYSTEM_PROMPT,
     PERSONAS,
     SOURCE_DIGEST_SYSTEM_PROMPT,
     TOPIC_DIGEST_SYSTEM_PROMPT,
@@ -107,12 +108,66 @@ class RoundtableService:
         self.settings = settings
         self.db = database
         self.adapters = adapters
+        self.momo_skill = self._load_momo_skill()
+        self.momo_one_page_summary_skill = self._load_momo_one_page_summary_skill()
         self.cancel_events: dict[str, asyncio.Event] = {}
         self.stream_tasks: dict[str, asyncio.Task[Any]] = {}
         self.session_locks: dict[str, asyncio.Lock] = {}
         self.background_tasks: set[asyncio.Task[Any]] = set()
         self.session_tasks: dict[str, set[asyncio.Task[Any]]] = {}
         self.final_summary_tasks: dict[str, asyncio.Task[Any]] = {}
+
+    @staticmethod
+    def _read_skill_text(path: Path) -> str:
+        for encoding in ("utf-8", "cp1252"):
+            try:
+                return path.read_text(encoding=encoding).strip()
+            except UnicodeDecodeError:
+                continue
+        return ""
+
+    @staticmethod
+    def _load_momo_skill() -> str:
+        skill_path = Path(__file__).resolve().parent / "skills" / "momo-academic-critical-review.md"
+        try:
+            return RoundtableService._read_skill_text(skill_path)
+        except OSError:
+            return ""
+
+    @staticmethod
+    def _load_momo_one_page_summary_skill() -> str:
+        skill_path = Path(__file__).resolve().parent / "skills" / "momo-one-page-summary.md"
+        try:
+            return RoundtableService._read_skill_text(skill_path)
+        except OSError:
+            return ""
+
+    def _speaker_live_token_budget(self, speaker: str) -> int:
+        if speaker == "Momo":
+            return self.settings.momo_live_max_output_tokens
+        if speaker == "Bobby":
+            return self.settings.bobby_live_max_output_tokens
+        return self.settings.live_max_output_tokens
+
+    def _source_boosts(self, session_id: str) -> tuple[float, float]:
+        documents = self.db.list_documents(session_id)
+        if not documents:
+            return 1.0, 1.0
+        if len(documents) >= 2:
+            return (
+                self.settings.source_multi_doc_token_multiplier,
+                self.settings.source_multi_doc_timeout_multiplier,
+            )
+        return (
+            self.settings.source_single_doc_token_multiplier,
+            self.settings.source_single_doc_timeout_multiplier,
+        )
+
+    def _scaled_tokens(self, base_tokens: int, multiplier: float, minimum: int = 250) -> int:
+        return max(minimum, int(base_tokens * multiplier))
+
+    def _scaled_timeout(self, base_seconds: float, multiplier: float) -> float:
+        return max(1.0, base_seconds * multiplier)
 
     def _lock(self, session_id: str) -> asyncio.Lock:
         return self.session_locks.setdefault(session_id, asyncio.Lock())
@@ -203,6 +258,8 @@ class RoundtableService:
         sam_deferred: bool = False,
     ) -> GenerationRequest:
         recent = self.db.recent_round_messages(session["id"], self.settings.recent_round_count)
+        source_token_multiplier, _source_timeout_multiplier = self._source_boosts(session["id"])
+        source_context = self._build_source_context(session["id"])
         transcript = join_with_budget(
             [
                 f"{message['speaker']} ({message['status']}): {message['content']}"
@@ -246,9 +303,12 @@ class RoundtableService:
                 "if the previous turn asked Sam for a judgment, answer it provisionally from your "
                 "academic perspective and state the assumption. Do not ask Sam another question in this turn."
             )
+        persona = PERSONAS[speaker]
+        if speaker == "Momo" and self.momo_skill:
+            persona = f"{persona}\n\n{self.momo_skill}"
         system = "\n\n".join(
             [
-                PERSONAS[speaker],
+                persona,
                 ACADEMIC_CONVERSATION_SKILL,
                 f"Session evidence policy: {source_rule}",
                 f"Academic move for this contribution: {ACADEMIC_MOVES[move_index % len(ACADEMIC_MOVES)]}",
@@ -289,14 +349,41 @@ RELEVANT SOURCE EVIDENCE
 Continue the roundtable as {speaker}. Address the latest relevant contribution and advance the active question."""
         return GenerationRequest(
             system=system,
-            messages=[{"role": "user", "content": context}],
-            max_output_tokens=(
-                self.settings.momo_live_max_output_tokens
-                if speaker == "Momo"
-                else self.settings.bobby_live_max_output_tokens
+            messages=[
+                {"role": "user", "content": context},
+                *([{"role": "user", "content": f"SOURCE CONTEXT:\n{source_context}"}] if source_context else []),
+            ],
+            max_output_tokens=self._scaled_tokens(
+                self._speaker_live_token_budget(speaker),
+                source_token_multiplier * self.settings.live_turn_token_multiplier,
             ),
             reasoning_effort=self.adapters.get(speaker).config.reasoning_effort,
             verbosity="low",
+        )
+
+    def _build_source_context(self, session_id: str) -> str:
+        documents = self.db.list_documents(session_id)
+        if not documents:
+            return ""
+        digest_fragments: list[str] = []
+        for document in documents:
+            digest_text = (document.get("digest") or "").strip()
+            if digest_text:
+                digest_fragments.append(
+                    f"{document['filename']} (document digest)"
+                    f"\n{clip_text(digest_text, 7000, 'source digest')}"
+                )
+                continue
+            status = document.get("status", "unknown")
+            if status == "failed":
+                digest_fragments.append(f"{document['filename']} (document digest failed; fallback evidence may be partial)")
+            else:
+                digest_fragments.append(f"{document['filename']} ({status})")
+        return join_with_budget(
+            digest_fragments,
+            total_limit=12000,
+            item_limit=3000,
+            label="source context",
         )
 
     async def stream_segment(
@@ -333,6 +420,7 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                     if cancel_event.is_set():
                         break
                     round_row = self.db.create_round(session_id)
+                    source_token_multiplier, source_timeout_multiplier = self._source_boosts(session_id)
                     yield {
                         "type": "round_start",
                         "round_id": round_row["id"],
@@ -359,115 +447,136 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                             for turn_index, speaker in enumerate(order)
                         }
                     round_complete = True
-                    for turn_index, speaker in enumerate(order):
-                        if cancel_event.is_set():
-                            round_complete = False
-                            break
-                        current = self.db.get_session(session_id)
-                        request = prepared_requests.get(speaker) or self.build_context(
-                            current,
-                            speaker,
-                            segment_round * 2 + turn_index,
-                            invite_host=host_checkpoint_due and turn_index == 1,
-                            sam_deferred=continue_without_sam and segment_round == 0,
-                        )
-                        yield {"type": "message_start", "speaker": speaker, "round_id": round_row["id"]}
-                        chunks: list[str] = []
-                        try:
-                            adapter = self.adapters.get(speaker)
-                            async with asyncio.timeout(adapter.config.total_timeout):
-                                stream = adapter.stream(request).__aiter__()
+                for turn_index, speaker in enumerate(order):
+                    if cancel_event.is_set():
+                        round_complete = False
+                        break
+                    current = self.db.get_session(session_id)
+                    request = prepared_requests.get(speaker) or self.build_context(
+                        current,
+                        speaker,
+                        segment_round * 2 + turn_index,
+                        invite_host=host_checkpoint_due and turn_index == 1,
+                        sam_deferred=continue_without_sam and segment_round == 0,
+                    )
+                    per_turn_timeout = source_timeout_multiplier * self.settings.live_turn_timeout_multiplier
+                    yield {"type": "message_start", "speaker": speaker, "round_id": round_row["id"]}
+                    chunks: list[str] = []
+                    try:
+                        adapter = self.adapters.get(speaker)
+                        async with asyncio.timeout(
+                            self._scaled_timeout(
+                                adapter.config.total_timeout,
+                                per_turn_timeout,
+                            )
+                        ):
+                            stream = adapter.stream(request).__aiter__()
+                            try:
+                                async with asyncio.timeout(
+                                    self._scaled_timeout(
+                                        adapter.config.first_token_timeout,
+                                        per_turn_timeout,
+                                    )
+                                ):
+                                    first_delta = await anext(stream)
+                            except TimeoutError as exc:
+                                raise ProviderError(
+                                    speaker,
+                                    "first_token_timeout",
+                                    f"{speaker} did not begin responding before the first-token deadline",
+                                    retryable=True,
+                                ) from exc
+                            except StopAsyncIteration as exc:
+                                raise ProviderError(
+                                    speaker,
+                                    "empty_response",
+                                    "Provider completed without visible output",
+                                    retryable=True,
+                                ) from exc
+                            if not cancel_event.is_set():
+                                chunks.append(first_delta)
+                                yield {"type": "delta", "speaker": speaker, "text": first_delta}
+                            while True:
+                                if cancel_event.is_set():
+                                    round_complete = False
+                                    break
                                 try:
-                                    async with asyncio.timeout(adapter.config.first_token_timeout):
-                                        first_delta = await anext(stream)
-                                except TimeoutError as exc:
-                                    raise ProviderError(
-                                        speaker,
-                                        "first_token_timeout",
-                                        f"{speaker} did not begin responding before the first-token deadline",
-                                        retryable=True,
-                                    ) from exc
-                                except StopAsyncIteration as exc:
-                                    raise ProviderError(
-                                        speaker,
-                                        "empty_response",
-                                        "Provider completed without visible output",
-                                        retryable=True,
-                                    ) from exc
-                                if not cancel_event.is_set():
-                                    chunks.append(first_delta)
-                                    yield {"type": "delta", "speaker": speaker, "text": first_delta}
-                                async for delta in stream:
-                                    if cancel_event.is_set():
-                                        round_complete = False
-                                        break
-                                    chunks.append(delta)
-                                    yield {"type": "delta", "speaker": speaker, "text": delta}
-                        except (ProviderError, TimeoutError) as exc:
-                            message = str(exc) if isinstance(exc, ProviderError) else "Total turn timeout exceeded"
-                            partial = "".join(chunks).strip()
-                            if partial:
-                                self.db.add_message(
-                                    session_id,
-                                    speaker,
-                                    partial,
-                                    round_id=round_row["id"],
-                                    status="interrupted",
-                                )
-                            yield {
-                                "type": "provider_error",
-                                "speaker": speaker,
-                                "message": message,
-                                "partial": bool(partial),
-                            }
+                                    async with asyncio.timeout(
+                                        self._scaled_timeout(
+                                            adapter.config.stream_idle_timeout,
+                                            per_turn_timeout,
+                                        )
+                                    ):
+                                        delta = await anext(stream)
+                                except StopAsyncIteration:
+                                    break
+                                chunks.append(delta)
+                                yield {"type": "delta", "speaker": speaker, "text": delta}
+                    except (ProviderError, TimeoutError) as exc:
+                        message = str(exc) if isinstance(exc, ProviderError) else "Total turn timeout exceeded"
+                        partial = "".join(chunks).strip()
+                        if partial:
+                            self.db.add_message(
+                                session_id,
+                                speaker,
+                                partial,
+                                round_id=round_row["id"],
+                                status="interrupted",
+                            )
+                        yield {
+                            "type": "provider_error",
+                            "speaker": speaker,
+                            "message": message,
+                            "partial": bool(partial),
+                        }
+                        round_complete = False
+                        stop_for_host = True
+                        break
+                    except asyncio.CancelledError:
+                        partial = "".join(chunks).strip()
+                        if partial:
+                            self.db.add_message(
+                                session_id,
+                                speaker,
+                                partial,
+                                round_id=round_row["id"],
+                                status="interrupted",
+                            )
+                        cancel_event.set()
+                        round_complete = False
+                        stop_for_host = True
+                        break
+                    content = "".join(chunks).strip()
+                    if cancel_event.is_set():
+                        if content:
+                            self.db.add_message(
+                                session_id,
+                                speaker,
+                                content,
+                                round_id=round_row["id"],
+                                status="interrupted",
+                            )
+                        round_complete = False
+                        break
+                    message = self.db.add_message(
+                        session_id,
+                        speaker,
+                        content or "[No visible response]",
+                        round_id=round_row["id"],
+                        metadata={
+                            "academic_move": ACADEMIC_MOVES[
+                                (segment_round * 2 + turn_index) % len(ACADEMIC_MOVES)
+                            ],
+                            "independent_answer": bool(prepared_requests),
+                        },
+                    )
+                    yield {"type": "message_complete", "message": message}
+                    if is_host_invitation(content[-1000:]):
+                        stop_for_host = True
+                        if turn_index < len(order) - 1:
                             round_complete = False
-                            stop_for_host = True
-                            break
-                        except asyncio.CancelledError:
-                            partial = "".join(chunks).strip()
-                            if partial:
-                                self.db.add_message(
-                                    session_id,
-                                    speaker,
-                                    partial,
-                                    round_id=round_row["id"],
-                                    status="interrupted",
-                                )
-                            cancel_event.set()
-                            round_complete = False
-                            stop_for_host = True
-                            break
-                        content = "".join(chunks).strip()
-                        if cancel_event.is_set():
-                            if content:
-                                self.db.add_message(
-                                    session_id,
-                                    speaker,
-                                    content,
-                                    round_id=round_row["id"],
-                                    status="interrupted",
-                                )
-                            round_complete = False
-                            break
-                        message = self.db.add_message(
-                            session_id,
-                            speaker,
-                            content or "[No visible response]",
-                            round_id=round_row["id"],
-                            metadata={
-                                "academic_move": ACADEMIC_MOVES[
-                                    (segment_round * 2 + turn_index) % len(ACADEMIC_MOVES)
-                                ],
-                                "independent_answer": bool(prepared_requests),
-                            },
-                        )
-                        yield {"type": "message_complete", "message": message}
-                        if is_host_invitation(content[-1000:]):
-                            stop_for_host = True
-                            if turn_index < len(order) - 1:
-                                round_complete = False
-                            yield {"type": "host_invited", "speaker": speaker}
-                            break
+                        yield {"type": "host_invited", "speaker": speaker}
+                        break
                     if round_complete:
                         self.db.complete_round(round_row["id"])
                         updated = self.db.get_session(session_id)
@@ -745,6 +854,7 @@ Transcript:
                 summary,
                 metadata={"kind": "final_summary", "through_round": session["completed_rounds"]},
             )
+            await self._run_one_page_summary_locked(session_id, summary, digest_text, job_id=None)
             self.db.update_session(session_id, state="CLOSED")
             self.db.update_job(job_id, status="complete", progress=1.0, detail="Final summary ready")
         except Exception as exc:
@@ -789,7 +899,13 @@ Transcript:
                     fallback,
                     metadata={"kind": "final_summary", "through_round": session["completed_rounds"], "fallback": True},
                 )
-            self.db.update_session(session_id, state="CLOSED")
+                await self._run_one_page_summary_locked(
+                    session_id,
+                    fallback,
+                    f"Final summary fallback:\n\n{fallback}",
+                    job_id=None,
+                )
+                self.db.update_session(session_id, state="CLOSED")
             self.db.update_job(
                 job_id,
                 status="complete",
@@ -797,6 +913,90 @@ Transcript:
                 error=str(exc)[:500],
                 detail="Final summary ready using retained digest fallback",
             )
+
+    async def _run_one_page_summary_locked(
+        self,
+        session_id: str,
+        final_summary: str,
+        digest_text: str,
+        job_id: str | None = None,
+    ) -> None:
+        session = self.db.get_session(session_id)
+        if not session:
+            return
+        one_page_job_id = job_id
+        if one_page_job_id is None:
+            one_page_job = self.db.create_job(session_id, "one_page_summary", {})
+            one_page_job_id = one_page_job["id"]
+        self.db.update_job(
+            one_page_job_id,
+            status="running",
+            progress=0.1,
+            detail="Assembling one-page summary source",
+        )
+        try:
+            source_token_multiplier, source_timeout_multiplier = self._source_boosts(session_id)
+            background_and_inferences = digest_text
+            summary_prompt = (
+                f"Topic: {session['topic']}\nLearning goal: {session['learning_goal']}\n\n"
+                f"Final summary:\n{final_summary}\n\n"
+                f"Digest context (background knowledge, inferences, and open questions included):\n{background_and_inferences}"
+            )
+            persona = PERSONAS["Momo"]
+            system = "\n\n".join(
+                [
+                    persona,
+                    ONE_PAGE_SUMMARY_SYSTEM_PROMPT,
+                    self.momo_one_page_summary_skill,
+                ]
+            )
+            request = GenerationRequest(
+                system=system,
+                messages=[{"role": "user", "content": summary_prompt}],
+                max_output_tokens=self._scaled_tokens(
+                    self.settings.conversation_digest_max_output_tokens, source_token_multiplier
+                ),
+                reasoning_effort="medium",
+                verbosity="low",
+            )
+            self.db.update_job(one_page_job_id, progress=0.45, detail="Writing one-page summary")
+            async with asyncio.timeout(
+                self._scaled_timeout(self.settings.digest_job_timeout, source_timeout_multiplier)
+            ):
+                one_page_summary = (await self.adapters.get("Momo").generate(request)).strip()
+            one_page_summary = one_page_summary or final_summary
+            self.db.add_summary_digest(
+                session_id,
+                "one_page",
+                session["completed_rounds"],
+                {"content": one_page_summary},
+            )
+            self.db.update_job(one_page_job_id, status="complete", progress=1.0, detail="One-page summary ready")
+        except Exception as exc:
+            fallback = "\n\n".join([
+                "## Key concepts",
+                "- Core topic-level concepts are preserved in the session transcript and final summary.",
+                "## Main issues",
+                "- The main unresolved questions remain in the final summary.",
+                "## Strategies to solve key problems",
+                "- Continue with one focused validation cycle against source evidence and explicit uncertainty points.",
+                "## Research priorities",
+                "- Prioritize a repeatable comparison run between the final competing explanations.",
+            ])
+            if one_page_job_id:
+                self.db.add_summary_digest(
+                    session_id,
+                    "one_page",
+                    session["completed_rounds"],
+                    {"content": fallback},
+                )
+                self.db.update_job(
+                    one_page_job_id,
+                    status="complete",
+                    progress=1.0,
+                    detail="One-page summary created from fallback",
+                    error=str(exc)[:500],
+                )
 
     async def run_topic_digest(self, job_id: str, session_id: str) -> None:
         self.db.update_job(job_id, status="running", progress=0.1, detail="Collecting topic context")

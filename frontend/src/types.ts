@@ -103,6 +103,15 @@ export interface ProviderHealth {
   detail: string;
 }
 
+export interface DocumentDependencies {
+  pymupdf: boolean;
+  pdfplumber: boolean;
+  pypdf: boolean;
+  pymupdf_version?: string | null;
+  pdfplumber_version?: string | null;
+  pypdf_version?: string | null;
+}
+
 export interface StreamEvent {
   type: string;
   speaker?: Speaker;

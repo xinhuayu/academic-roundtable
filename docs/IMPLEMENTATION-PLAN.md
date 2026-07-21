@@ -53,7 +53,9 @@ The project uses short, testable increments. It does not add multi-user or cloud
 ### 4. Minimal document grounding — complete
 
 - PDF, TXT, and Markdown upload with 30 MB limit
+- PDF ingestion now uses PyMuPDF + pdfplumber for table detection and figure-object extraction hints
 - Page/section extraction and hierarchical source digestion
+- Table extraction prefers structural cues from pdfplumber and PyMuPDF, with pypdf fallback
 - SQLite FTS5 passage retrieval with locators
 - Sources-only evidence policy
 - Clearly labeled model background knowledge when permitted
@@ -65,8 +67,8 @@ The project uses short, testable increments. It does not add multi-user or cloud
 - Narrow, persistent Sam composer and always-reachable interrupt control
 - Participant-name highlighting and distinct background-knowledge styling
 - Digests and periodic summaries below the conversation
-- Close-session page with finalization progress, summary cancellation, and digest-based fallback wrap-up
-- Markdown, JSON, and ZIP downloads
+- Close-session page with finalization progress, one-page summary download, summary cancellation, and digest-based fallback wrap-up
+- Momo-authored one-page learning summary (key concepts, main issues, strategies, research priorities) plus Markdown, JSON, and ZIP downloads
 - Guarded one-session retention, optional save/evaluation handoff, and safe one-choice purge before replacement
 
 ## Audit stabilization increment — complete
@@ -105,7 +107,7 @@ The prioritized rationale and postponed work are recorded in [CRITICAL-REVIEW.md
 - Regression coverage protects reasoning propagation and timeout environment parsing.
 - Host-invitation detection requires a complete final question to Sam, preventing ordinary direct address from prematurely ending a segment.
 - Roles are deliberately asymmetric: Bobby develops the strongest defensible case; Momo critiques it and serves as the default OpenAI-backed digest provider.
-- Participant-specific live budgets allocate 800 tokens to Momo and 1,400 to Bobby while the prompt constrains visible prose to roughly 60–110 words.
+- Participant-specific live budgets allocate 800 base tokens to Momo and 1,400 to Bobby, with a 50% live-token multiplier applied by default during rounds.
 - Chat Completions finish reasons are inspected; length-limited fragments are retained as interrupted and cannot silently hand the floor to the other AI.
 
 ## Next agile increments
@@ -192,8 +194,8 @@ Potential scope:
 
 | Work type | Output budget | Execution |
 |---|---:|---|
-| Live Momo contribution | 800 completion tokens; prompt targets 60–110 words | critical response plus sufficient OpenAI reasoning room |
-| Live Bobby contribution | 1,400 completion tokens; prompt targets 60–110 words | case development plus Gemini hidden-reasoning room |
+| Live Momo contribution | 800 base completion tokens; prompt targets 60-110 words; 50% multiplier applied during rounds | critical response plus sufficient OpenAI reasoning room |
+| Live Bobby contribution | 1,400 base completion tokens; prompt targets 60-110 words; 50% multiplier applied during rounds | case development plus Gemini hidden-reasoning room |
 | Conversation digest/recap | at least 2,000; default 4,000 | background or requested foreground |
 | Topic digest | at least 3,000; default 6,000 | background |
 | Source section/synthesis | at least 4,000; default 8,000 | background |

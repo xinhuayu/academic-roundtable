@@ -41,6 +41,10 @@ def env_float(name: str, default: float, minimum: float = 1.0) -> float:
         return default
 
 
+def _bound_multiplier(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, value))
+
+
 @dataclass(frozen=True)
 class ProviderConfig:
     participant: str
@@ -85,6 +89,12 @@ class Settings:
     digest_job_timeout: float = 900.0
     momo_live_max_output_tokens: int = 800
     bobby_live_max_output_tokens: int = 1400
+    live_turn_token_multiplier: float = 1.5
+    live_turn_timeout_multiplier: float = 1.5
+    source_single_doc_token_multiplier: float = 1.5
+    source_multi_doc_token_multiplier: float = 2.0
+    source_single_doc_timeout_multiplier: float = 1.5
+    source_multi_doc_timeout_multiplier: float = 2.0
 
 
 def provider_from_env(name: str, default_model: str) -> ProviderConfig:
@@ -119,6 +129,8 @@ def get_settings() -> Settings:
         recent_round_count=max(5, env_int("RECENT_ROUND_COUNT", 5)),
         host_checkpoint_interval=max(2, min(4, env_int("HOST_CHECKPOINT_INTERVAL", 3))),
         live_max_output_tokens=live_default,
+        live_turn_token_multiplier=env_float("LIVE_TURN_TOKEN_BUDGET_MULTIPLIER", 1.5),
+        live_turn_timeout_multiplier=env_float("LIVE_TURN_TIMEOUT_BUDGET_MULTIPLIER", 1.5),
         conversation_digest_max_output_tokens=max(
             2000, env_int("CONVERSATION_DIGEST_MAX_OUTPUT_TOKENS", 4000)
         ),
@@ -127,6 +139,18 @@ def get_settings() -> Settings:
         ),
         source_digest_max_output_tokens=max(
             4000, env_int("SOURCE_DIGEST_MAX_OUTPUT_TOKENS", 8000)
+        ),
+        source_single_doc_token_multiplier=_bound_multiplier(
+            env_float("SOURCE_SINGLE_DOC_TOKEN_MULTIPLIER", 1.5), 1.25, 2.0
+        ),
+        source_multi_doc_token_multiplier=_bound_multiplier(
+            env_float("SOURCE_MULTI_DOC_TOKEN_MULTIPLIER", 2.0), 1.5, 3.0
+        ),
+        source_single_doc_timeout_multiplier=_bound_multiplier(
+            env_float("SOURCE_SINGLE_DOC_TIMEOUT_MULTIPLIER", 1.5), 1.25, 2.0
+        ),
+        source_multi_doc_timeout_multiplier=_bound_multiplier(
+            env_float("SOURCE_MULTI_DOC_TIMEOUT_MULTIPLIER", 2.0), 1.5, 3.0
         ),
         momo=provider_from_env("momo", "gpt-5.6-luna"),
         bobby=provider_from_env("bobby", "gpt-5.6-terra"),

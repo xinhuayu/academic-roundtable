@@ -53,6 +53,7 @@ flowchart LR
 - Topic, conversation, periodic, requested, and final digests
 - At least five recent complete rounds in every live model request
 - PDF, TXT, and Markdown upload, extraction, digestion, and FTS5 retrieval
+- PDF extraction uses PyMuPDF + pdfplumber for table-aware extraction and figure-object detection cues (pypdf fallback remains for compatibility)
 - Sources-only mode or labeled internal background knowledge
 - Conversation-first rolling interface with persistent host controls
 - Provider health and background-job progress
@@ -82,6 +83,7 @@ The compiled Vite frontend is served by FastAPI for a one-process local deployme
 - Node.js 20.19+ or 22.12+
 - pnpm 9+ recommended
 - One or two OpenAI-compatible provider credentials
+- PyMuPDF and pdfplumber installed for PDF table/figure handling
 
 The two participants may use the same server during development, but separate configurations are supported.
 
@@ -135,7 +137,7 @@ DIGEST_JOB_TIMEOUT_SECONDS=900
 
 `MOMO_API_KEY_ENV` and `BOBBY_API_KEY_ENV` contain the **names** of environment variables, not the secrets themselves. Supported API styles are `responses` and `chat_completions`.
 
-Reasoning is task-aware. Live turns use each participant's configured effort (`low` by default for speed); source, topic, conversation, final-summary, and learning-evaluation requests explicitly use `medium`. Chat Completions and Responses adapters both forward this setting. Momo receives an 800-token live allowance; Bobby receives 1,400 tokens so Gemini has room for hidden reasoning while the prompt limits visible prose to roughly 60–110 words. Momo's OpenAI adapter is the default provider for source, topic, conversation, and final digests. A Chat Completions `finish_reason` of `length` is treated as an interrupted response rather than silent success, and the next AI does not continue from that fragment. Provider timeout variables govern live calls; background digest jobs use their separate section and job deadlines.
+Reasoning is task-aware. Live turns use each participant's configured effort (`low` by default for speed); source, topic, conversation, final-summary, and learning-evaluation requests explicitly use `medium`. Chat Completions and Responses adapters both forward this setting. Momo uses an 800-token base live allowance and Bobby uses 1,400; with the 50% live-token and live-timeout multipliers, effective limits and timing grow automatically during active rounds. Momo's OpenAI adapter is the default provider for source, topic, conversation, and final digests. A Chat Completions `finish_reason` of `length` is treated as an interrupted response rather than silent success, and the next AI does not continue from that fragment. Provider timeout variables govern live calls; background digest jobs use their separate section and job deadlines.
 
 Check connectivity without displaying credentials:
 
@@ -153,6 +155,12 @@ python -m venv .venv
 Set-Location frontend
 pnpm install --frozen-lockfile
 Set-Location ..
+```
+
+After backend startup, verify PDF library health:
+
+```powershell
+curl http://127.0.0.1:8765/api/documents/dependencies
 ```
 
 Run the backend:
@@ -240,6 +248,7 @@ Runtime data, uploads, databases, environment files, logs, dependency directorie
 | Method | Endpoint | Purpose |
 |---|---|---|
 | `GET` | `/api/health` | Application and provider health |
+| `GET` | `/api/documents/dependencies` | Confirm PDF extraction dependencies (`pymupdf`, `pdfplumber`) |
 | `GET/POST` | `/api/sessions` | List or create the single retained session |
 | `GET/PATCH` | `/api/sessions/{id}` | Read or update session settings |
 | `POST` | `/api/sessions/{id}/messages` | Add Sam's message and determine the next action |

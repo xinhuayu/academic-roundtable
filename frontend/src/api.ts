@@ -1,8 +1,8 @@
-import type { EvaluationRatings, LearningEvaluationBundle, ProviderHealth, Session, StreamEvent } from "./types";
+import type { DocumentDependencies, EvaluationRatings, LearningEvaluationBundle, ProviderHealth, Session, StreamEvent } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
-export const exportUrl = (sessionId: string, format: "markdown" | "json" | "archive" = "markdown") =>
+export const exportUrl = (sessionId: string, format: "markdown" | "json" | "archive" | "one_page_summary" = "markdown") =>
   `${API_BASE}/api/sessions/${sessionId}/export?format=${format}`;
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -40,6 +40,7 @@ export const api = {
   updateSession: (id: string, payload: Record<string, unknown>) =>
     request<Session>(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   health: () => request<{ status: string; providers: ProviderHealth[] }>("/api/health"),
+  documentDependencies: () => request<DocumentDependencies>("/api/documents/dependencies"),
   interrupt: (id: string) =>
     request<{ interrupted: boolean }>(`/api/sessions/${id}/interrupt`, { method: "POST" }),
   closeSession: (id: string) =>

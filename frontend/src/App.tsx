@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api, exportUrl } from "./api";
-import type { EvaluationRatings, Job, LearningEvaluationBundle, Message, ProviderHealth, Session, Speaker, StreamEvent } from "./types";
+import type { DocumentDependencies, EvaluationRatings, Job, LearningEvaluationBundle, Message, ProviderHealth, Session, Speaker, StreamEvent } from "./types";
 
 const speakerMeta: Record<Speaker, { monogram: string; subtitle: string }> = {
   Momo: { monogram: "M", subtitle: "tests and challenges" },
@@ -222,6 +222,7 @@ function LearningEvaluationPanel({
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [health, setHealth] = useState<ProviderHealth[]>([]);
+  const [documentDependencies, setDocumentDependencies] = useState<DocumentDependencies | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [composer, setComposer] = useState("");
@@ -246,9 +247,10 @@ function App() {
   };
 
   useEffect(() => {
-    Promise.all([api.listSessions(), api.health()])
-      .then(([available, healthResponse]) => {
+    Promise.all([api.listSessions(), api.health(), api.documentDependencies()])
+      .then(([available, healthResponse, dependencies]) => {
         setHealth(healthResponse.providers);
+        setDocumentDependencies(dependencies);
         return available[0] ? api.getSession(available[0].id) : null;
       })
       .then((current) => current && setSession(current))
@@ -296,6 +298,7 @@ function App() {
   const recapMessages = useMemo(() => session?.messages.filter((message) => message.speaker === "System" && ["recap", "final_summary"].includes(String(message.metadata.kind))) ?? [], [session?.messages]);
   const hasSamDirection = useMemo(() => session?.messages.some((message) => message.speaker === "Sam" && message.metadata.kind !== "session_opening") ?? false, [session?.messages]);
   const concluded = session?.state === "CLOSING" || session?.state === "CLOSED";
+  const pdfDependenciesReady = Boolean(documentDependencies?.pymupdf && documentDependencies?.pdfplumber);
   const chooseRoundCount = () => automaticRoundVariation ? (Math.random() < 0.2 ? 3 : 2) : rounds;
 
   const createSession = async (topic: string, learningGoal: string) => {
@@ -367,7 +370,23 @@ function App() {
   const interrupt = async () => { if (session) await api.interrupt(session.id); };
   const requestRecap = async () => { if (!session) return; await api.interrupt(session.id); await api.recap(session.id); await refreshSession(session.id); };
   const toggleSetting = async (key: "sources_only" | "periodic_summary", value: boolean) => { if (session) setSession(await api.updateSession(session.id, { [key]: value })); };
-  const upload = async (file: File) => { if (!session) return; setError(""); try { await api.upload(session.id, file); await refreshSession(session.id); } catch (cause) { setError((cause as Error).message); } };
+  const upload = async (file: File) => {
+    if (!session) return;
+    const isPdf = file.name.toLowerCase().endsWith(".pdf");
+    if (isPdf && documentDependencies && !pdfDependenciesReady) {
+      setError(
+        "PDF source parsing requires pymupdf + pdfplumber in this runtime. Install them and retry, or upload a TXT/Markdown file.",
+      );
+      return;
+    }
+    setError("");
+    try {
+      await api.upload(session.id, file);
+      await refreshSession(session.id);
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  };
   const endSession = async () => {
     if (!session || concluded) return;
     pendingStart.current = null;
@@ -432,6 +451,9 @@ function App() {
   const finalSummaryJob = session?.jobs.find((job) => job.kind === "final_summary");
   const summaryCancelled = finalSummaryJob?.status === "cancelled";
   const summaryInterrupted = finalSummaryJob?.status === "interrupted";
+  const onePageSummary = [...(session?.summary_history ?? [])]
+    .reverse()
+    .find((digest) => digest.kind === "one_page" && typeof digest.digest?.content === "string")?.digest?.content;
 
   return (
     <div className="app-shell">
@@ -483,6 +505,9 @@ function App() {
               {session.state === "CLOSED" ? <>
                 <a className="button button-primary" href={exportUrl(session.id, "archive")} download onClick={() => setRecordDownloaded(true)}>Save complete archive</a>
                 <a className="button button-secondary" href={exportUrl(session.id, "markdown")} download onClick={() => setRecordDownloaded(true)}>Download readable transcript</a>
+                {onePageSummary ? (
+                  <a className="button button-ghost" href={exportUrl(session.id, "one_page_summary")} download onClick={() => setRecordDownloaded(true)}>Download one-page summary</a>
+                ) : <button className="button button-ghost" disabled>Preparing one-page summary…</button>}
                 <a className="button button-ghost" href={exportUrl(session.id, "json")} download onClick={() => setRecordDownloaded(true)}>Download structured JSON</a>
               </> : <><button className="button button-primary" disabled>Preparing downloads…</button><button className="button button-stop" onClick={cancelSummary}>Cancel summary</button></>}
             </div>
@@ -545,7 +570,25 @@ function App() {
             <article className="info-card summary-card"><div className="section-heading"><span className="eyebrow">Summary history</span><Badge>{session.summary_history?.length ? `${session.summary_history.length} saved` : "pending"}</Badge></div><dl className="digest-list"><div><dt>Active thread</dt><dd>{formatDigest(session.conversation_digest.active_question || session.active_question)}</dd></div><div><dt>Agreements</dt><dd>{formatDigest(session.conversation_digest.agreements)}</dd></div><div><dt>Disagreements</dt><dd>{formatDigest(session.conversation_digest.disagreements)}</dd></div><div><dt>Open questions</dt><dd>{formatDigest(session.conversation_digest.open_questions)}</dd></div></dl>{recapMessages.map((message) => <div className="visible-recap" key={message.id}><strong>{message.metadata.kind === "final_summary" ? "Final summary" : "Recap"}</strong><p><HighlightMentions text={message.content} /></p></div>)}{!concluded && <button className="text-button" onClick={requestRecap}>Summarize the conversation so far →</button>}</article>
           </section>
 
-          <section className="evidence-card"><div><div className="section-heading"><span className="eyebrow">Evidence library</span><Badge>{session.documents.length}</Badge></div><p>Documents stay local; only relevant excerpts are sent to the model servers.</p></div><label className="upload-zone"><input type="file" accept=".pdf,.txt,.md,.markdown" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} /><span>＋ Add a source</span><small>PDF, TXT, or Markdown · 30 MB</small></label><div className="document-list">{session.documents.map((document) => <div key={document.id} className="document-item"><strong>{document.filename}</strong><small>{document.status}{document.error ? ` · ${document.error}` : ""}</small></div>)}</div><div className="settings"><label><input type="checkbox" checked={session.sources_only} onChange={(event) => toggleSetting("sources_only", event.target.checked)} /> Sources only</label><label><input type="checkbox" checked={session.periodic_summary} onChange={(event) => toggleSetting("periodic_summary", event.target.checked)} /> Periodic recap every 5–6 rounds</label></div></section>
+          <section className="evidence-card">
+            <div>
+              <div className="section-heading"><span className="eyebrow">Evidence library</span><Badge>{session.documents.length}</Badge></div>
+              <p>Documents stay local; only relevant excerpts are sent to the model servers.</p>
+            </div>
+            <label className="upload-zone">
+              <input type="file" accept=".pdf,.txt,.md,.markdown" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} />
+              <span>+ Add a source</span>
+              <small>PDF, TXT, or Markdown · 30 MB</small>
+            </label>
+            {!pdfDependenciesReady && documentDependencies && (
+              <div className="dependency-warning">
+                <strong>PDF upload blocked:</strong> install PyMuPDF and pdfplumber to enable robust table + figure extraction.
+                <div>Detected: PyMuPDF {documentDependencies.pymupdf_version || "not found"}, pdfplumber {documentDependencies.pdfplumber_version || "not found"}.</div>
+              </div>
+            )}
+            <div className="document-list">{session.documents.map((document) => <div key={document.id} className="document-item"><strong>{document.filename}</strong><small>{document.status}{document.error ? ` · ${document.error}` : ""}</small></div>)}</div>
+            <div className="settings"><label><input type="checkbox" checked={session.sources_only} onChange={(event) => toggleSetting("sources_only", event.target.checked)} /> Sources only</label><label><input type="checkbox" checked={session.periodic_summary} onChange={(event) => toggleSetting("periodic_summary", event.target.checked)} /> Periodic recap every 5–6 rounds</label></div>
+          </section>
         </main>
       )}
     </div>

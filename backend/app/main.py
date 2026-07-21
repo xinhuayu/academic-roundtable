@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from .adapters import AdapterRegistry
 from .config import get_settings
 from .database import Database
-from .documents import MAX_UPLOAD_BYTES, safe_extension
+from .documents import MAX_UPLOAD_BYTES, extract_dependency_health, safe_extension
 from .evaluation import RUBRIC, analyze_session, apply_human_ratings, rating_template
 from .schemas import (
     LearningEvaluationSubmission,
@@ -81,6 +81,12 @@ def sse(data: dict[str, Any]) -> str:
 
 
 def render_session_markdown(view: dict[str, Any]) -> str:
+    one_page_summary = next(
+        (digest["digest"].get("content") for digest in view.get("summary_history", [])
+         if digest.get("kind") == "one_page" and isinstance(digest.get("digest"), dict)),
+        None,
+    )
+
     lines = [
         f"# {view['topic']}",
         "",
@@ -127,6 +133,8 @@ def render_session_markdown(view: dict[str, Any]) -> str:
                 entry.get("evidence") or entry.get("note") or "No evidence recorded.",
                 "",
             ])
+    if one_page_summary:
+        lines.extend(["## One-page learning summary", "", "```markdown", one_page_summary, "```", ""])
     return "\n".join(lines)
 
 
@@ -151,7 +159,13 @@ async def meta() -> dict[str, Any]:
         "digest_interval": settings.digest_interval,
         "recent_round_count": settings.recent_round_count,
         "supported_uploads": ["pdf", "txt", "md"],
+        "pdf_dependencies": extract_dependency_health(),
     }
+
+
+@app.get("/api/documents/dependencies")
+async def document_dependencies() -> dict[str, bool]:
+    return extract_dependency_health()
 
 
 @app.get("/api/health")
@@ -207,6 +221,11 @@ async def get_session(session_id: str) -> dict[str, Any]:
 @app.get("/api/sessions/{session_id}/export")
 async def export_session(session_id: str, format: str = "markdown"):
     view = session_view(session_id)
+    one_page_summary = next(
+        (digest["digest"].get("content") for digest in view.get("summary_history", [])
+         if digest.get("kind") == "one_page" and isinstance(digest.get("digest"), dict)),
+        None,
+    )
     if view["state"] != "CLOSED":
         raise HTTPException(
             status_code=409,
@@ -216,6 +235,17 @@ async def export_session(session_id: str, format: str = "markdown"):
         return JSONResponse(
             view,
             headers={"Content-Disposition": f'attachment; filename="roundtable-{session_id}.json"'},
+        )
+    if format == "one_page_summary":
+        if not one_page_summary:
+            raise HTTPException(
+                status_code=409,
+                detail="One-page summary is not available yet. Complete finalization first.",
+            )
+        return Response(
+            one_page_summary,
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="roundtable-{session_id}-one-page-summary.md"'},
         )
     markdown = render_session_markdown(view)
     if format == "archive":
@@ -456,6 +486,21 @@ async def upload_document(session_id: str, file: UploadFile = File(...)) -> dict
         extension = safe_extension(original_name)
     except ValueError as exc:
         raise HTTPException(status_code=415, detail=str(exc)) from exc
+    if extension == ".pdf":
+        deps = extract_dependency_health()
+        if not (deps["pymupdf"] and deps["pdfplumber"]):
+            detected = (
+                f"Detected PyMuPDF: {deps.get('pymupdf_version') or 'missing'}, "
+                f"pdfplumber: {deps.get('pdfplumber_version') or 'missing'}."
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "PDF ingestion requires PyMuPDF and pdfplumber for robust table/figure extraction. "
+                    "Install both packages (`pip install pymupdf pdfplumber`) and retry. "
+                    + detected
+                ),
+            )
     stored_name = f"{uuid.uuid4().hex}{extension}"
     stored_path = settings.uploads_dir / stored_name
     size = 0

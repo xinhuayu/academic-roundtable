@@ -674,8 +674,8 @@ def test_live_context_is_bounded_and_marks_clipped_content(tmp_path: Path) -> No
     assert "clipped for this request; full content remains in the session" in context
     assert "UNTRUSTED SOURCE EVIDENCE" in context
     assert len(context) < 60000
-    assert request.max_output_tokens == 800
-    assert bobby_request.max_output_tokens == 1400
+    assert request.max_output_tokens == 1800
+    assert bobby_request.max_output_tokens == 3150
 
 
 def test_interrupt_cancels_stalled_stream_and_preserves_partial_text(tmp_path: Path) -> None:
