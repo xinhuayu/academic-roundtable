@@ -102,10 +102,12 @@ These are acceptable MVP boundaries when stated honestly.
 
 - The transcript is visually dominant and uses internal scrolling, preventing token streaming from moving Sam's controls off-screen.
 - Sam's composer remains separate and reachable for interruption.
+- Sam's composer receives a restrained active-floor highlight when the AIs are waiting for the host.
 - Participant-name highlighting improves conversational scanning.
 - Background knowledge is visually separated from the core response.
 - Digests sit below the main conversation instead of competing in side frames.
 - The closeout view creates a clear download opportunity before single-session deletion.
+- Closeout exposes blue, stage-specific progress notices for final and one-page summaries; save/download actions precede the optional learning evaluation.
 
 ### Follow-up validation
 

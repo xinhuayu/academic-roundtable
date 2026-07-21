@@ -22,7 +22,7 @@ Ordinary multi-agent chats tend to become long parallel monologues. Academic Rou
 - Live turns use the Topic Digest, latest Conversation Digest, active question, and five recent rounds.
 - Uploaded sources can ground the discussion, while allowed model knowledge is labeled as background knowledge.
 - Full transcripts and digest history remain available for final synthesis and download.
-- After summary processing ends, Sam can evaluate learning directly on the closeout page; the saved rubric and diagnostics are included in session downloads.
+- The closeout page shows a highlighted blue status notice while final and one-page summaries are generated. After processing, the save/download row appears first and **Evaluate learning** follows beneath it; saved rubric results are included in later downloads.
 
 ## Core workflow
 
@@ -56,7 +56,9 @@ flowchart LR
 - PDF extraction uses PyMuPDF + pdfplumber for table-aware extraction and figure-object detection cues (pypdf fallback remains for compatibility)
 - Sources-only mode or labeled internal background knowledge
 - Conversation-first rolling interface with persistent host controls
+- Highlighted Sam composer whenever Sam has the floor
 - Provider health and background-job progress
+- Blue closeout progress messages that distinguish final-summary and one-page-summary processing
 - Markdown, JSON, and ZIP session exports after closure
 - An **End** action that interrupts generation and opens closeout immediately
 - Cancellable final-summary generation; downloads remain available without it
@@ -234,10 +236,11 @@ The application intentionally retains one session at a time:
 1. Sam concludes the current session.
 2. The active stream finishes cancelling and the closeout page starts an optional final summary.
 3. Sam may wait for the summary, cancel it, or skip directly to the next-table action.
-4. Once summary processing ends, Sam may complete and save the built-in learning evaluation.
-5. The closeout page offers Markdown, JSON, and ZIP downloads, including any saved evaluation, even when the summary is cancelled.
-6. If the record has not been saved—or the summary was skipped—the app asks whether Sam wants to stay for optional save/evaluation work.
-7. Selecting **No, start new roundtable** immediately clears prior database history, evaluation, FTS passages, and managed uploads before showing the new-table form.
+4. A blue progress message distinguishes session-material summarization from one-page-summary generation and asks Sam to wait or cancel.
+5. Once processing ends, the closeout page presents Markdown, JSON, ZIP, and one-page-summary downloads, followed by the optional learning-evaluation control.
+6. Sam may complete and save the built-in learning evaluation; subsequent downloads include it.
+7. If the record has not been saved—or the summary was skipped—the app asks whether Sam wants to stay for optional save/evaluation work.
+8. Selecting **No, start new roundtable** immediately clears prior database history, evaluation, FTS passages, and managed uploads before showing the new-table form.
 
 Download the ZIP archive before starting a new session if the source files and full record should be kept.
 

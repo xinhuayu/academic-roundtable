@@ -30,11 +30,12 @@ The evaluator makes no provider calls and does not expose API keys. Ordinary use
 ## Built-in session workflow
 
 1. End the roundtable.
-2. Wait for the final summary to finish, or cancel the summary if it is not wanted.
-3. When the session reaches its closed state, select **Evaluate learning**.
-4. Score any or all eight dimensions and add brief conversation evidence.
-5. Add reflections and select **Save evaluation**.
-6. Download Markdown, structured JSON, or the complete ZIP archive. The saved evaluation is included in every format.
+2. Follow the blue progress notice while the final and one-page summaries are generated, or cancel summary processing if it is not wanted.
+3. When the session reaches its closed state, review the save/download row.
+4. Select **Evaluate learning** immediately below that row.
+5. Score any or all eight dimensions and add brief conversation evidence.
+6. Add reflections and select **Save evaluation**.
+7. Download or re-download Markdown, structured JSON, or the complete ZIP archive. The saved evaluation is included in every format.
 
 The evaluation belongs only to the current session. Starting a new roundtable permanently clears it with that session's transcript, digests, and managed uploads. There is intentionally no cross-session evaluation-history page in the current release.
 

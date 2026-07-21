@@ -21,7 +21,7 @@ Depth here means intellectual progress—not long answers. Each AI turn should b
 ## Design principles
 
 1. **Human-directed, not human-blocked.** Momo and Bobby may converse for two to five rounds, but Sam can interrupt or redirect them at any time.
-2. **Conversation owns the screen.** The rolling transcript is the main interface; Sam's composer and interrupt control remain reachable while generation continues.
+2. **Conversation owns the screen.** The rolling transcript is the main interface; Sam's composer and interrupt control remain reachable while generation continues, and the composer is highlighted when Sam has the floor.
 3. **Concise turns support depth.** Live prompts target one substantive contribution of roughly 60–110 words rather than comprehensive mini-essays.
 4. **Useful opposition.** Each AI must agree, disagree, qualify, or extend the other participant's claim instead of producing parallel monologues.
 5. **Focus is durable state.** Every live request includes the Topic Digest, latest Conversation Digest, active question, and the five most recent complete rounds.
@@ -54,7 +54,7 @@ During a session:
 - An AI can ask Sam one focused question at a scheduled checkpoint; Sam can answer, redirect, or click **Let them continue**.
 - Interrupt stops the active segment without hiding already streamed partial text. Sam may then speak or continue for more rounds.
 - Recaps can be requested in natural language or from the interface and appear below the transcript.
-- The header **End** action or closing language interrupts generation, creates one brief AI farewell, and opens the download handoff. Final-summary and one-page Momo-authored learning summaries are generated at closeout; one-page download can be taken separately. Final-summary generation can be cancelled without losing transcript or digest downloads.
+- The header **End** action or closing language interrupts generation, creates one brief AI farewell, and opens the download handoff. A highlighted blue live-status panel distinguishes “Summarizing the session materials……” from “Generating the one-page summary……” and displays the active job detail. Final-summary generation can be cancelled without losing transcript or digest downloads. After completion, the save/download row appears before the optional **Evaluate learning** control.
 
 The transcript uses a fixed-height rolling viewport. New streamed content scrolls inside that viewport rather than moving the whole page, keeping Sam's composer accessible.
 
@@ -168,9 +168,12 @@ Closeout is coordinated with the active generation lock so interrupted text is p
 - PDF/TXT/Markdown upload, extraction, FTS5 retrieval, and source synthesis (PyMuPDF + pdfplumber table extraction with pypdf fallback)
 - Sources-only mode and model-knowledge fallback mode
 - Fixed rolling transcript with visible host controls
+- Sam composer highlight while the human floor is active
 - Provider health and background-job progress
+- Blue closeout progress notices for final and one-page summary stages
 - Complete Markdown, JSON, and ZIP exports after closure
 - Built-in closeout learning evaluation with automated diagnostics, Sam's evidence-backed rubric, and export inclusion
+- Save/download controls precede the optional learning-evaluation action on closeout
 - Momo-authored one-page closeout summary generated with the finalization lock and downloadable independently
 - Immediate **End**, cancellable final summary, and digest-based wrap-up fallback
 - One-session retention with guarded replacement and managed upload cleanup

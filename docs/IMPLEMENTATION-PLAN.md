@@ -70,9 +70,11 @@ The project uses short, testable increments. It does not add multi-user or cloud
 
 - Rolling transcript as the dominant view
 - Narrow, persistent Sam composer and always-reachable interrupt control
+- Active-floor highlight around Sam's composer whenever the AIs are waiting for the host
 - Participant-name highlighting and distinct background-knowledge styling
 - Digests and periodic summaries below the conversation
-- Close-session page with finalization progress, one-page summary download, summary cancellation, and digest-based fallback wrap-up
+- Close-session page with highlighted blue final-summary and one-page-summary progress stages, one-page summary download, summary cancellation, and digest-based fallback wrap-up
+- Save/download row before the optional **Evaluate learning** action
 - Momo-authored one-page learning summary (key concepts, main issues, strategies, research priorities) plus Markdown, JSON, and ZIP downloads
 - Guarded one-session retention, optional save/evaluation handoff, and safe one-choice purge before replacement
 

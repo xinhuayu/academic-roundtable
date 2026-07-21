@@ -35,6 +35,7 @@
 - [x] Candidate source files passed checks for common OpenAI, Google, and Anthropic key formats, private-key blocks, and developer-specific absolute paths.
 - [x] Archive entry inspection found no `.env.local`, runtime database, uploaded source, transcript, log, cache, dependency directory, or compiled build output.
 - [x] `.env.example`, README, logo, backend source, frontend source, tests, skills, and documentation are present.
+- [x] Current frontend source includes the Sam-floor composer highlight, stage-specific blue closeout progress messages, and save/download-before-evaluation ordering.
 
 This verifies the prepared local archive only. A GitHub history scan remains required after repository initialization and before publication.
 

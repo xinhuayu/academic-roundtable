@@ -308,6 +308,8 @@ function App() {
   }, [session?.id, session?.jobs]);
 
   const activeJobs = useMemo(() => session?.jobs.filter((job) => ["queued", "running"].includes(job.status)) ?? [], [session?.jobs]);
+  const activeFinalSummaryJob = activeJobs.find((job) => job.kind === "final_summary");
+  const activeOnePageSummaryJob = activeJobs.find((job) => job.kind === "one_page_summary");
   const conversationMessages = useMemo(() => session?.messages.filter((message) => !(message.speaker === "System" && message.metadata.kind === "recap")) ?? [], [session?.messages]);
   const recapMessages = useMemo(() => session?.messages.filter((message) => message.speaker === "System" && ["recap", "final_summary"].includes(String(message.metadata.kind))) ?? [], [session?.messages]);
   const hasSamDirection = useMemo(() => session?.messages.some((message) => message.speaker === "Sam" && message.metadata.kind !== "session_opening") ?? false, [session?.messages]);
@@ -542,6 +544,15 @@ function App() {
             <h1>{session.state === "CLOSING" ? "Preparing your final record…" : summaryCancelled ? "Session ended · summary skipped" : summaryInterrupted ? "Session ended · summary interrupted" : "Session concluded"}</h1>
             <p>{session.state === "CLOSING" ? "The final summary is being assembled from the retained digest history. You may cancel it and keep the transcript and existing digests." : summaryCancelled ? "Summary generation was cancelled. Your transcript, existing digests, and sources remain available below until you start another roundtable." : summaryInterrupted ? "The application restarted before summary generation finished. The transcript and all completed digests remain available below." : "Your complete conversation is ready to download. Save anything you want to keep before starting another roundtable."}</p>
             {error && <div className="error-banner"><span>{error}</span><button onClick={() => setError("")}>Dismiss</button></div>}
+            {session.state === "CLOSING" && (
+              <div className="summary-progress-message" role="status" aria-live="polite">
+                <div className="summary-progress-symbol" aria-hidden="true">{activeOnePageSummaryJob ? "1P" : "Σ"}</div>
+                <div>
+                  <strong>{activeOnePageSummaryJob ? "Generating the one-page summary" : "Summarizing the session materials"}<span className="summary-progress-dots" aria-hidden="true">......</span></strong>
+                  <span>{activeOnePageSummaryJob?.detail || activeFinalSummaryJob?.detail || "Reviewing the retained conversation and digest history"}. Please wait; you may cancel summary generation if you do not need it.</span>
+                </div>
+              </div>
+            )}
             <div className="close-stats">
               <div><strong>{session.completed_rounds}</strong><span>rounds</span></div>
               <div><strong>{session.messages.length}</strong><span>messages</span></div>
@@ -550,13 +561,6 @@ function App() {
             </div>
             {finalSummary && <div className="final-summary-preview"><div className="eyebrow">Final summary</div><FormattedMessageContent text={finalSummary.content} /></div>}
             {!finalSummary && <div className="final-summary-preview wrapup-preview"><div className="eyebrow">Current discussion wrap-up</div><h3>{formatDigest(session.conversation_digest.active_question || session.active_question)}</h3><dl className="digest-list"><div><dt>Agreements</dt><dd>{formatDigest(session.conversation_digest.agreements)}</dd></div><div><dt>Disagreements</dt><dd>{formatDigest(session.conversation_digest.disagreements)}</dd></div><div><dt>Open questions</dt><dd>{formatDigest(session.conversation_digest.open_questions)}</dd></div></dl></div>}
-            {session.state === "CLOSED" && !evaluation && (
-              <div className="evaluation-launch">
-                <div><strong>{session.learning_evaluation ? "Learning evaluation saved" : "Reflect on the learning"}</strong><span>{session.learning_evaluation ? `Weighted score: ${session.learning_evaluation.report.human_review?.weighted_score ?? "incomplete"} / 5` : "Evaluate focus, intellectual progress, readability, and what you learned."}</span></div>
-                <button className="button button-secondary" disabled={evaluationBusy} onClick={openEvaluation}>{evaluationBusy ? "Opening…" : session.learning_evaluation ? "View or update evaluation" : "Evaluate learning"}</button>
-              </div>
-            )}
-            {session.state === "CLOSED" && evaluation && <LearningEvaluationPanel key={evaluation.updated_at ?? "new-evaluation"} bundle={evaluation} busy={evaluationBusy} onSave={saveEvaluation} onClose={() => setEvaluation(null)} />}
             <div className="close-downloads">
               {session.state === "CLOSED" ? <>
                 <a className="button button-primary" href={exportUrl(session.id, "archive")} download onClick={() => setRecordDownloaded(true)}>Save complete archive</a>
@@ -567,6 +571,13 @@ function App() {
                 <a className="button button-ghost" href={exportUrl(session.id, "json")} download onClick={() => setRecordDownloaded(true)}>Download structured JSON</a>
               </> : <><button className="button button-primary" disabled>Preparing downloads…</button><button className="button button-stop" onClick={cancelSummary}>Cancel summary</button></>}
             </div>
+            {session.state === "CLOSED" && !evaluation && (
+              <div className="evaluation-launch">
+                <div><strong>{session.learning_evaluation ? "Learning evaluation saved" : "Reflect on the learning"}</strong><span>{session.learning_evaluation ? `Weighted score: ${session.learning_evaluation.report.human_review?.weighted_score ?? "incomplete"} / 5` : "Evaluate focus, intellectual progress, readability, and what you learned."}</span></div>
+                <button className="button button-secondary" disabled={evaluationBusy} onClick={openEvaluation}>{evaluationBusy ? "Opening…" : session.learning_evaluation ? "View or update evaluation" : "Evaluate learning"}</button>
+              </div>
+            )}
+            {session.state === "CLOSED" && evaluation && <LearningEvaluationPanel key={evaluation.updated_at ?? "new-evaluation"} bundle={evaluation} busy={evaluationBusy} onSave={saveEvaluation} onClose={() => setEvaluation(null)} />}
             {confirmNewSession && (
               <div className="new-session-confirm" role="dialog" aria-labelledby="new-session-confirm-title" aria-modal="true">
                 <div>
@@ -604,7 +615,7 @@ function App() {
 
               <aside className="host-panel" aria-label="Sam's host controls">
                 <div className="host-panel-heading"><div className="avatar">S</div><strong>Sam</strong><span className="host-label-separator" aria-hidden="true">·</span><small>Guide the roundtable</small></div>
-                <form onSubmit={sendMessage} className="composer">
+                <form onSubmit={sendMessage} className={`composer ${!busy && !concluded ? "sam-has-floor" : ""}`}>
                   <div className="composer-topline"><label>Address <select value={target} onChange={(event) => setTarget(event.target.value)}><option value="roundtable">Automatic</option><option value="Momo">Momo</option><option value="Bobby">Bobby</option><option value="both">Both independently</option></select></label><span>Names and @mentions override</span></div>
                   <div className="composer-actions">
                     {!concluded && <div className="quick-actions"><button type="button" onClick={requestRecap}>Recap</button><button type="button" onClick={() => setComposer("What evidence would distinguish these explanations?")}>Evidence</button><button type="button" onClick={() => setComposer(`Return to the active question: ${session.active_question}`)}>Refocus</button></div>}
