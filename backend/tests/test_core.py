@@ -15,6 +15,7 @@ from app.service import (
     RoundtableService,
     infer_participant_target,
     is_host_invitation,
+    is_source_verification_request,
     parse_json_object,
 )
 from app.schemas import SessionCreate
@@ -146,6 +147,60 @@ def test_chat_completion_length_finish_is_not_silent_success(monkeypatch) -> Non
             await adapter.close()
 
     assert asyncio.run(scenario()) == ["An unfinished claim"]
+
+
+def test_anthropic_messages_style_streams_delta_and_handles_max_tokens_limit(monkeypatch) -> None:
+    monkeypatch.setenv("FAKE_ANTHROPIC_KEY", "test-only-key")
+    headers: dict[str, str] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        headers["x-api-key"] = request.headers.get("x-api-key", "")
+        headers["anthropic-version"] = request.headers.get("anthropic-version", "")
+        events = (
+            'data: {"type":"message_start","message":{"id":"msg","type":"message","role":"assistant","content":[]}}\n\n'
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Critical"}}\n\n'
+            'data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" point"}}\n\n'
+            'data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"}}\n\n'
+            'data: [DONE]\n\n'
+        )
+        return httpx.Response(200, text=events, headers={"content-type": "text/event-stream"})
+
+    provider = ProviderConfig(
+        participant="Bobby",
+        base_url="https://example.invalid/v1",
+        model="claude-3-5-haiku-20241022",
+        api_style="anthropic_messages",
+        api_key_env="FAKE_ANTHROPIC_KEY",
+        reasoning_effort="low",
+    )
+    adapter = LLMAdapter(provider)
+
+    async def scenario() -> list[str]:
+        await adapter.client.aclose()
+        adapter.client = httpx.AsyncClient(
+            base_url=provider.base_url,
+            transport=httpx.MockTransport(handler),
+            headers={"x-api-key": "test-only-key", "anthropic-version": "2023-06-01"},
+        )
+        chunks: list[str] = []
+        try:
+            request = GenerationRequest(
+                system="Test",
+                messages=[{"role": "user", "content": "Challenge this claim"}],
+                max_output_tokens=350,
+                reasoning_effort="low",
+            )
+            with pytest.raises(ProviderError, match="generation limit"):
+                async for chunk in adapter.stream(request):
+                    chunks.append(chunk)
+            return chunks
+        finally:
+            await adapter.close()
+
+    chunks = asyncio.run(scenario())
+    assert chunks == ["Critical", " point"]
+    assert headers["x-api-key"] == "test-only-key"
+    assert headers["anthropic-version"] == "2023-06-01"
 
 
 def test_provider_timeout_profile_is_configurable(monkeypatch) -> None:
@@ -344,6 +399,43 @@ def test_greetings_are_excluded_from_initial_live_context(tmp_path: Path) -> Non
     db.add_message(session["id"], "Sam", "Let's start with construct validity.")
     recent = db.recent_round_messages(session["id"], 5)
     assert [item["speaker"] for item in recent] == ["Sam"]
+
+
+def test_source_digest_dict_is_accepted_in_stream_context(tmp_path: Path) -> None:
+    db = make_db(tmp_path)
+    session = db.create_session("Digest robustness", "Use parsed digests", 2, False, False)
+    doc = db.add_document(session["id"], "notes.txt", str(tmp_path / "notes.txt"), "text/plain")
+    db.update_document(doc["id"], digest='{"status": "ok", "topic": "test"}')
+    provider = ProviderConfig(
+        participant="Momo",
+        base_url="https://example.invalid/v1",
+        model="fake",
+        api_style="responses",
+        api_key_env="FAKE_KEY",
+        reasoning_effort="low",
+    )
+    settings = Settings(
+        project_root=tmp_path,
+        data_dir=tmp_path,
+        uploads_dir=tmp_path / "uploads",
+        db_path=tmp_path / "test.sqlite3",
+        host="127.0.0.1",
+        port=8765,
+        digest_provider="momo",
+        digest_interval=6,
+        recent_round_count=5,
+        host_checkpoint_interval=3,
+        live_max_output_tokens=500,
+        conversation_digest_max_output_tokens=2000,
+        topic_digest_max_output_tokens=3000,
+        source_digest_max_output_tokens=4000,
+        momo=provider,
+        bobby=provider,
+    )
+    service = RoundtableService(settings, db, FakeRegistry())
+
+    request = service.build_context(db.get_session(session["id"]), "Momo", 0)
+    assert "document digest" in request.messages[1]["content"]
 
 
 def test_summary_digest_history_is_append_only(tmp_path: Path) -> None:
@@ -650,9 +742,23 @@ def test_live_context_is_bounded_and_marks_clipped_content(tmp_path: Path) -> No
     document = db.add_document(
         session["id"], "source.txt", str(tmp_path / "source.txt"), "text/plain"
     )
+    db.update_document(
+        document["id"],
+        status="ready",
+        digest="Processed source digest: context limits are discussed in the uploaded study.",
+    )
     db.replace_passages(
         document["id"], "source.txt", [{"content": "Context limits evidence " * 1000}],
     )
+    for index in range(6):
+        round_row = db.create_round(session["id"])
+        db.add_message(
+            session["id"], "Momo", f"Momo recent round {index}", round_id=round_row["id"]
+        )
+        db.add_message(
+            session["id"], "Bobby", f"Bobby recent round {index}", round_id=round_row["id"]
+        )
+        db.complete_round(round_row["id"])
     provider = ProviderConfig(
         participant="Momo", base_url="https://example.invalid/v1", model="fake",
         api_style="responses", api_key_env="FAKE_KEY", reasoning_effort="low",
@@ -669,13 +775,55 @@ def test_live_context_is_bounded_and_marks_clipped_content(tmp_path: Path) -> No
 
     request = service.build_context(db.get_session(session["id"]), "Momo", 0)
     bobby_request = service.build_context(db.get_session(session["id"]), "Bobby", 1)
+    verification_request = service.build_context(
+        db.get_session(session["id"]), "Momo", 0, source_verification=True
+    )
+    bobby_verification_request = service.build_context(
+        db.get_session(session["id"]), "Bobby", 1, source_verification=True
+    )
     context = request.messages[0]["content"]
+    verification_context = verification_request.messages[0]["content"]
 
     assert "clipped for this request; full content remains in the session" in context
-    assert "UNTRUSTED SOURCE EVIDENCE" in context
+    assert "UNTRUSTED ORIGINAL SOURCE EXCERPT" not in context
+    assert "Context limits evidence" not in context
+    assert "Processed source digest" in request.messages[1]["content"]
+    assert '"active_question": "Limits"' in context
+    assert "Momo recent round 0" not in context
+    assert "Momo recent round 1" in context
+    assert "Bobby recent round 5" in context
+    assert "UNTRUSTED ORIGINAL SOURCE EXCERPT" in verification_context
+    assert "Context limits evidence" in verification_context
     assert len(context) < 60000
-    assert request.max_output_tokens == 1800
-    assert bobby_request.max_output_tokens == 3150
+    assert request.max_output_tokens == 1200
+    assert bobby_request.max_output_tokens == 2100
+    assert verification_request.max_output_tokens == 1800
+    assert bobby_verification_request.max_output_tokens == 3150
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "Please check the original source for that estimate.",
+        "Can Bobby double-check the original PDF?",
+        "Go back to the uploaded document and verify the table value.",
+        "The original article should be reviewed before we conclude.",
+    ],
+)
+def test_source_verification_request_detection(content: str) -> None:
+    assert is_source_verification_request(content) is True
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "What source supports that claim?",
+        "Please explain the source digest.",
+        "Let's continue discussing the document.",
+    ],
+)
+def test_ordinary_source_discussion_does_not_reopen_extracts(content: str) -> None:
+    assert is_source_verification_request(content) is False
 
 
 def test_interrupt_cancels_stalled_stream_and_preserves_partial_text(tmp_path: Path) -> None:

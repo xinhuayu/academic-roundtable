@@ -41,8 +41,8 @@ flowchart LR
 
 ## Features
 
-- Two independently configured OpenAI-compatible model servers
-- Responses API and Chat Completions adapter styles
+- Two independently configured model servers (OpenAI-compatible or native Anthropic-compatible)
+- Responses API, Chat Completions, and Anthropic Messages adapter styles
 - Streamed, interruptible Momo/Bobby discussion segments
 - Direct routing with `@momo`, `@bobby`, or participant names
 - Random first respondent for undirected Sam messages
@@ -51,7 +51,7 @@ flowchart LR
 - Scheduled invitations to Sam and **Let them continue** when Sam defers
 - Natural-language and button-triggered recaps
 - Topic, conversation, periodic, requested, and final digests
-- At least five recent complete rounds in every live model request
+- The five most recent complete rounds in every live model request
 - PDF, TXT, and Markdown upload, extraction, digestion, and FTS5 retrieval
 - PDF extraction uses PyMuPDF + pdfplumber for table-aware extraction and figure-object detection cues (pypdf fallback remains for compatibility)
 - Sources-only mode or labeled internal background knowledge
@@ -82,7 +82,7 @@ The compiled Vite frontend is served by FastAPI for a one-process local deployme
 - Python 3.11 or newer
 - Node.js 20.19+ or 22.12+
 - pnpm 9+ recommended
-- One or two OpenAI-compatible provider credentials
+- One or two provider credentials (OpenAI-compatible or Anthropic)
 - PyMuPDF and pdfplumber installed for PDF table/figure handling
 
 The two participants may use the same server during development, but separate configurations are supported.
@@ -110,6 +110,7 @@ Never place a real credential in `.env.example` or commit `.env.local`.
 # Add secrets only in your ignored local copy.
 OPENAI_API_KEY=
 GEMINI_API_KEY=
+ANTHROPIC_API_KEY=
 
 MOMO_BASE_URL=https://api.openai.com/v1
 MOMO_MODEL=your-momo-model-id
@@ -129,15 +130,22 @@ BOBBY_FIRST_TOKEN_TIMEOUT_SECONDS=60
 BOBBY_STREAM_IDLE_TIMEOUT_SECONDS=60
 BOBBY_TOTAL_TIMEOUT_SECONDS=240
 
+# Optional alternative for Bobby (disabled until selected)
+# BOBBY_BASE_URL=https://api.anthropic.com/v1
+# BOBBY_MODEL=claude-3-5-haiku-20241022
+# BOBBY_API_STYLE=anthropic_messages
+# BOBBY_API_KEY_ENV=ANTHROPIC_API_KEY
+
 # Longer limits apply to medium-reasoning background synthesis.
 DIGEST_PROVIDER=momo
 DIGEST_SECTION_TIMEOUT_SECONDS=300
 DIGEST_JOB_TIMEOUT_SECONDS=900
 ```
 
-`MOMO_API_KEY_ENV` and `BOBBY_API_KEY_ENV` contain the **names** of environment variables, not the secrets themselves. Supported API styles are `responses` and `chat_completions`.
+`MOMO_API_KEY_ENV` and `BOBBY_API_KEY_ENV` contain the **names** of environment variables, not the secrets themselves.
+Supported API styles are `responses`, `chat_completions`, and `anthropic_messages`.
 
-Reasoning is task-aware. Live turns use each participant's configured effort (`low` by default for speed); source, topic, conversation, final-summary, and learning-evaluation requests explicitly use `medium`. Chat Completions and Responses adapters both forward this setting. Momo uses an 800-token base live allowance and Bobby uses 1,400; with the 50% live-token and live-timeout multipliers, effective limits and timing grow automatically during active rounds. Momo's OpenAI adapter is the default provider for source, topic, conversation, and final digests. A Chat Completions `finish_reason` of `length` is treated as an interrupted response rather than silent success, and the next AI does not continue from that fragment. Provider timeout variables govern live calls; background digest jobs use their separate section and job deadlines.
+Reasoning is task-aware. Live turns use each participant's configured effort (`low` by default for speed); source, topic, conversation, final-summary, and learning-evaluation requests explicitly use `medium`. Responses and Chat Completions adapters forward this setting, and Anthropic Messages currently forwards budget/control through streaming with token-stop handling. Momo uses an 800-token base live allowance and Bobby uses 1,400; with the 50% live-token and live-timeout multipliers, effective limits and timing grow automatically during active rounds. Momo's OpenAI adapter is the default provider for source, topic, conversation, and final digests. A Chat Completions `finish_reason` of `length` is treated as an interrupted response rather than silent success, and the next AI does not continue from that fragment. Provider timeout variables govern live calls; background digest jobs use their separate section and job deadlines.
 
 Check connectivity without displaying credentials:
 
@@ -202,20 +210,22 @@ Optional live-provider smoke test (uses API capacity):
 .\.venv\Scripts\python.exe .\scripts\smoke_generation.py --participant Bobby
 ```
 
-The current deterministic backend suite contains 33 passing tests. The built-in learning-quality workflow and optional developer comparison tools are documented in [docs/LEARNING-QUALITY-EVALUATION.md](docs/LEARNING-QUALITY-EVALUATION.md). See [docs/CRITICAL-REVIEW.md](docs/CRITICAL-REVIEW.md) for the prioritized agent-system review and [docs/INDEPENDENT-AUDIT.md](docs/INDEPENDENT-AUDIT.md) for the broader audit.
+The current deterministic backend suite contains 46 passing tests. The built-in learning-quality workflow and optional developer comparison tools are documented in [docs/LEARNING-QUALITY-EVALUATION.md](docs/LEARNING-QUALITY-EVALUATION.md). See [docs/CRITICAL-REVIEW.md](docs/CRITICAL-REVIEW.md) for the prioritized agent-system review and [docs/INDEPENDENT-AUDIT.md](docs/INDEPENDENT-AUDIT.md) for the broader audit.
 
 ## Conversation memory
 
-Every live turn receives:
+Every ordinary live turn receives all four continuity layers—processed document digest, Topic Digest, latest Conversation Digest, and the five most recent completed rounds—along with the active question and participant instructions:
 
 1. The participant persona and concise academic-conversation protocol
 2. Sam's latest direction and the active question
 3. The Topic Digest
 4. Only the most recent Conversation Digest
-5. At least five recent complete rounds
-6. Relevant retrieved source passages
+5. The five most recent complete rounds, including relevant Sam interventions
+6. The processed document digest, when an uploaded source is available
 
 The complete transcript and all prior digest versions remain in SQLite. They are used for the final summary and exports but are not repeatedly sent to providers during live discussion.
+
+Raw PDF/document passages are not included in ordinary rounds. If Sam explicitly asks to “check the original source,” “check the original PDF/document,” or otherwise verify a claim against the uploaded material, the next AI segment retrieves up to five relevant indexed passages and sends them as clearly labeled, untrusted original-source excerpts. That verification segment uses the enlarged source-processing token and timeout multipliers. A later Continue action returns to digest-only context unless Sam makes another verification request.
 
 ## Session lifecycle and retention
 

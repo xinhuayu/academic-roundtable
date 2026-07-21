@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
@@ -40,8 +41,24 @@ class LLMAdapter:
             base_url=config.base_url,
             timeout=timeout,
             limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
-            headers={"Authorization": f"Bearer {config.api_key}"} if config.api_key else {},
+            headers=self._auth_headers(config),
         )
+
+    @staticmethod
+    def _auth_headers(config: ProviderConfig) -> dict[str, str]:
+        api_key = config.api_key
+        if not api_key:
+            return {}
+        if config.api_style == "anthropic_messages":
+            headers = {
+                "x-api-key": api_key,
+                "anthropic-version": os.getenv("ANTHROPIC_API_VERSION", "2023-06-01"),
+            }
+            beta = os.getenv("ANTHROPIC_BETA_HEADER")
+            if beta:
+                headers["anthropic-beta"] = beta
+            return headers
+        return {"Authorization": f"Bearer {api_key}"}
 
     async def close(self) -> None:
         await self.client.aclose()
@@ -70,7 +87,11 @@ class LLMAdapter:
                 "detail": f"Provider returned HTTP {exc.response.status_code}",
             }
         except httpx.HTTPError as exc:
-            return {**result, "reachable": False, "detail": exc.__class__.__name__}
+            return {
+                **result,
+                "reachable": False,
+                "detail": f"{exc.__class__.__name__}: {str(exc)}",
+            }
 
     async def stream(self, request: GenerationRequest) -> AsyncIterator[str]:
         if not self.config.configured:
@@ -81,6 +102,10 @@ class LLMAdapter:
             return
         if self.config.api_style == "chat_completions":
             async for delta in self._stream_chat_completions(request):
+                yield delta
+            return
+        if self.config.api_style == "anthropic_messages":
+            async for delta in self._stream_anthropic_messages(request):
                 yield delta
             return
         raise ProviderError(
@@ -140,7 +165,12 @@ class LLMAdapter:
                 exc.response.status_code in {408, 409, 429, 500, 502, 503, 504},
             ) from exc
         except httpx.HTTPError as exc:
-            raise ProviderError(self.config.participant, "connection", exc.__class__.__name__, True) from exc
+            raise ProviderError(
+                self.config.participant,
+                "connection",
+                f"{exc.__class__.__name__}: {str(exc)}",
+                True,
+            ) from exc
 
     async def _stream_chat_completions(self, request: GenerationRequest) -> AsyncIterator[str]:
         body = {
@@ -199,7 +229,95 @@ class LLMAdapter:
                 exc.response.status_code in {408, 409, 429, 500, 502, 503, 504},
             ) from exc
         except httpx.HTTPError as exc:
-            raise ProviderError(self.config.participant, "connection", exc.__class__.__name__, True) from exc
+            raise ProviderError(
+                self.config.participant,
+                "connection",
+                f"{exc.__class__.__name__}: {str(exc)}",
+                True,
+            ) from exc
+
+    async def _stream_anthropic_messages(self, request: GenerationRequest) -> AsyncIterator[str]:
+        body = {
+            "model": self.config.model,
+            "system": request.system,
+            "messages": request.messages,
+            "max_tokens": request.max_output_tokens,
+            "stream": True,
+        }
+        finish_reason: str | None = None
+        try:
+            async with self.client.stream("POST", "/messages", json=body) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if not data:
+                        continue
+                    if data == "[DONE]":
+                        continue
+                    try:
+                        event = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    event_type = event.get("type", "")
+                    if event_type == "content_block_delta":
+                        delta = event.get("delta", {}).get("text", "")
+                        if delta:
+                            yield delta
+                        continue
+                    if event_type == "message_delta":
+                        reason = event.get("delta", {}).get("stop_reason")
+                        if reason is not None:
+                            finish_reason = str(reason).lower()
+                        continue
+                    if event_type == "message_stop":
+                        message = event.get("message", {})
+                        if isinstance(message, dict):
+                            reason = message.get("stop_reason")
+                            if reason is not None:
+                                finish_reason = str(reason).lower()
+                        continue
+                    if event_type == "error":
+                        error = event.get("error", {})
+                        message = error.get("message", "Response generation failed")
+                        raise ProviderError(
+                            self.config.participant,
+                            "provider",
+                            message,
+                            retryable=True,
+                        )
+            if finish_reason == "max_tokens":
+                raise ProviderError(
+                    self.config.participant,
+                    "output_limit",
+                    f"{self.config.participant} reached the generation limit before completing the response",
+                    retryable=True,
+                )
+            if finish_reason not in {None, "", "end_turn", "tool_use"}:
+                raise ProviderError(
+                    self.config.participant,
+                    "provider_finish",
+                    f"{self.config.participant} stopped with provider finish reason: {finish_reason}",
+                    retryable=False,
+                )
+        except httpx.TimeoutException as exc:
+            raise ProviderError(self.config.participant, "timeout", "Provider timed out", True) from exc
+        except httpx.HTTPStatusError as exc:
+            detail = self._safe_http_error(exc.response)
+            raise ProviderError(
+                self.config.participant,
+                "http",
+                f"Provider returned HTTP {exc.response.status_code}: {detail}",
+                exc.response.status_code in {408, 409, 429, 500, 502, 503, 504},
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ProviderError(
+                self.config.participant,
+                "connection",
+                f"{exc.__class__.__name__}: {str(exc)}",
+                True,
+            ) from exc
 
     @staticmethod
     def _safe_http_error(response: httpx.Response) -> str:

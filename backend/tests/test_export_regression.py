@@ -54,3 +54,64 @@ def test_markdown_export_includes_one_page_summary_block_and_missing_summary_blo
     markdown = client.get(f"/api/sessions/{session['id']}/export?format=markdown").text
     assert "## One-page learning summary" in markdown
     assert "Actionable learning" in markdown
+
+
+def test_create_session_force_reset_clears_existing_active_sessions(tmp_path, monkeypatch) -> None:
+    db = Database(tmp_path / "export-create-session-regression.sqlite3")
+    db.initialize()
+    first = db.create_session("Observational bias", "Test guarded reset", 2, False, False)
+    db.update_session(first["id"], state="AI_SEGMENT_RUNNING")
+    client = make_test_client(db, monkeypatch)
+
+    without_reset = client.post(
+        "/api/sessions",
+        json={
+            "topic": "New topic should be blocked",
+            "learning_goal": "Check reset path",
+            "rounds_per_segment": 2,
+            "sources_only": False,
+            "periodic_summary": False,
+            "force_reset": False,
+        },
+    )
+    assert without_reset.status_code == 409
+
+    with_reset = client.post(
+        "/api/sessions",
+        json={
+            "topic": "Retained after reset",
+            "learning_goal": "Verify purge works",
+            "rounds_per_segment": 2,
+            "sources_only": False,
+            "periodic_summary": False,
+            "force_reset": True,
+        },
+    )
+    assert with_reset.status_code == 201
+    created = with_reset.json()
+    sessions = db.list_sessions()
+    assert len(sessions) == 1
+    assert sessions[0]["id"] == created["id"]
+
+
+def test_create_session_requires_force_reset_if_any_old_session_is_non_closed(tmp_path, monkeypatch) -> None:
+    db = Database(tmp_path / "export-create-session-regression-2.sqlite3")
+    db.initialize()
+    stale = db.create_session("Active residue", "Need purge check", 2, False, False)
+    db.update_session(stale["id"], state="AI_SEGMENT_RUNNING")
+    closed = db.create_session("Closed anchor", "Finished one", 2, False, False)
+    db.update_session(closed["id"], state="CLOSED")
+    client = make_test_client(db, monkeypatch)
+
+    without_reset = client.post(
+        "/api/sessions",
+        json={
+            "topic": "Replacement after mixed states",
+            "learning_goal": "Verify non-closure check scans all rows",
+            "rounds_per_segment": 2,
+            "sources_only": False,
+            "periodic_summary": False,
+            "force_reset": False,
+        },
+    )
+    assert without_reset.status_code == 409

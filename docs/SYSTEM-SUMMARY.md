@@ -2,10 +2,13 @@
   <img src="../frontend/public/academic-roundtable-logo.png" alt="Academic Roundtable logo" width="150">
 </p>
 
+> Canonical source: This is the active `academic-roundtable-github-ready` workspace.
+> The sibling `academic-roundtable/` folder is archived and not for new development.
+
 # Academic Roundtable: System Summary
 
 Status: audited lean local MVP (`v0.1.0`)  
-Last reviewed: 2026-07-20
+Last reviewed: 2026-07-21
 
 ## Purpose
 
@@ -21,11 +24,11 @@ Depth here means intellectual progress—not long answers. Each AI turn should b
 2. **Conversation owns the screen.** The rolling transcript is the main interface; Sam's composer and interrupt control remain reachable while generation continues.
 3. **Concise turns support depth.** Live prompts target one substantive contribution of roughly 60–110 words rather than comprehensive mini-essays.
 4. **Useful opposition.** Each AI must agree, disagree, qualify, or extend the other participant's claim instead of producing parallel monologues.
-5. **Focus is durable state.** Every live request includes the Topic Digest, latest Conversation Digest, active question, and at least five recent complete rounds.
+5. **Focus is durable state.** Every live request includes the Topic Digest, latest Conversation Digest, active question, and the five most recent complete rounds.
 6. **Evidence provenance matters.** Source evidence, model background knowledge, inference, and speculation must remain distinguishable.
 7. **Documents are evidence, not instructions.** Uploaded text cannot override system behavior or Sam's authority.
 8. **Digestion stays off the live path.** Source and summary tasks receive larger budgets and run as background jobs.
-9. **Close before replacement.** The current session must be concluded and offered optional download/evaluation choices before a new session can erase it; none of those choices is required.
+9. **Controlled replacement.** If any prior session remains non-closed, a new table requires reset confirmation; reset creates a clean environment by purging prior session content and uploads after a warning so learning sessions stay independent.
 10. **Lean before scalable.** The first release is a single-user local system; production infrastructure is deferred until the learning experience is validated.
 
 ## Participant model
@@ -47,7 +50,7 @@ During a session:
 - `@momo`, `@bobby`, or a direct name routes the first answer to that participant.
 - An undirected message randomly chooses the first respondent.
 - Mentioning both AIs requests independent initial answers before ordinary debate resumes.
-- AI segments contain two to five rounds, with one contribution from each AI per completed round. Automatic mode chooses two rounds 80% of the time and three rounds 20% of the time; fixed selections remain exact.
+- AI segments contain two to five rounds, with one contribution from each AI per completed round.
 - An AI can ask Sam one focused question at a scheduled checkpoint; Sam can answer, redirect, or click **Let them continue**.
 - Interrupt stops the active segment without hiding already streamed partial text. Sam may then speak or continue for more rounds.
 - Recaps can be requested in natural language or from the interface and appear below the transcript.
@@ -81,7 +84,10 @@ FastAPI exposes session, message, segment, interrupt, recap, document, job, heal
 
 ### Provider boundary
 
-Momo and Bobby use separate configuration records and can target different OpenAI-compatible servers. The default template keeps Momo on OpenAI and connects Bobby to Gemini 3.1 Flash-Lite through Google's OpenAI-compatible Chat Completions endpoint. Each adapter supports either the Responses API or Chat Completions style. Both paths forward the request's reasoning effort, and provider failures are reported per participant.
+Momo and Bobby use separate configuration records and can target different providers.
+The default template keeps Momo on OpenAI and connects Bobby to Gemini 3.1 Flash-Lite through Google's OpenAI-compatible Chat Completions endpoint.
+Adapters also support Anthropic Messages for Bobby as an alternative path (`anthropic_messages`) when configured.
+Each adapter forwards task settings and reports provider failures per participant.
 
 Reasoning, output allowances, and timeouts are task-aware. Live turns default to low reasoning and target 60-110 visible words. Momo uses an 800-token base live allowance and Bobby uses 1,400; a 50% live-token and live-timeout multiplier applies during rounds. Momo's OpenAI adapter handles source, topic, conversation, and final digests by default; these requests and learning evaluation explicitly use medium reasoning. A Chat Completions `finish_reason` of `length` is persisted as interrupted, reported to Sam, and stops the segment before the next AI speaks. Connection, first-token, stream-read, and total-turn deadlines are independently configurable per participant. The Gemini template allows 60 seconds for first output or an idle stream and 240 seconds for a complete live turn. Background section and whole-job deadlines are configured separately at 300 and 900 seconds. Sam's interrupt still cancels the active stream task immediately, retaining any partial response already received.
 
@@ -107,17 +113,21 @@ Each live request is assembled in this order:
 4. Latest Topic Digest
 5. Latest Conversation Digest only
 6. Active question, reflecting Sam's latest direction
-7. At least five recent complete rounds, including relevant Sam interventions
-8. Up to five retrieved source passages
+7. The five most recent complete rounds, including relevant Sam interventions
+8. The processed document digest only; raw uploaded passages are omitted from ordinary rounds
 
 The complete transcript and full digest history stay in SQLite for final synthesis and export. Older digest history is not sent with each live turn. This keeps context focused and response latency manageable.
 
-Each prompt section also has an explicit input ceiling. Oversized material is visibly clipped for that request while the complete stored record remains unchanged. Retrieved uploads are labeled as untrusted source evidence; provider-specific token estimation is a planned refinement.
+If Sam explicitly asks to check, verify, double-check, review, or return to the original source, PDF, document, article, or file, the responding AI segment enters source-verification mode. It retrieves up to five relevant indexed passages, labels each as an untrusted original-source excerpt with filename/page/evidence ID where available, and asks the AIs to report any mismatch with the digest without claiming more than the excerpt supports. The verification segment uses the configured single- or multi-document source token and timeout multipliers. Verification mode ends with that segment; an ordinary Continue action returns to digest-only context.
+
+Each prompt section also has an explicit input ceiling. Oversized material is visibly clipped for that request while the complete stored record remains unchanged. Provider-specific token estimation is a planned refinement.
 
 ## Digestion policy
 
 - A provisional Topic Digest is created from the session topic.
 - Uploaded sources trigger page-aware extraction, structural table extraction, figure-object detection cues, document synthesis, indexing, and Topic Digest refinement.
+- Ordinary discussion carries the processed document digest, not raw PDF text or retrieved extracts.
+- Explicit original-source verification requests temporarily retrieve the most relevant indexed extracts and apply source-processing budgets and deadlines.
 - Without sources, the Topic Digest develops after several substantive exchanges.
 - A Conversation Digest is scheduled every configured five or six completed rounds; Sam's interruptions do not reset that counter.
 - Natural-language requests such as “summarize so far” or “let's recap” create an immediate visible digest.
@@ -137,6 +147,8 @@ stateDiagram-v2
     AI_SEGMENT_RUNNING --> CLOSING: Sam concludes during streaming
     CLOSING --> CLOSED: summary completes, fails safely, or Sam cancels it
     CLOSED --> [*]: downloads offered; next session may purge the record
+
+`New roundtable` on the landing page now performs a fresh session-list check immediately before creating a new session; if any prior local sessions exist, the UI prompts for confirmation and only proceeds with `force_reset=true`.
 ```
 
 Closeout is coordinated with the active generation lock so interrupted text is persisted before the final summary snapshots history. Streaming cleanup cannot overwrite `CLOSING` or `CLOSED`. Sam may cancel summary work; the session then closes with its transcript and existing digests intact. At `CLOSED`, Sam may also download a separate one-page Momo-authored learning summary that includes key concepts, main issues, strategies, and research priorities. Sam may save a learning evaluation included in every export. Downloading, reviewing, and evaluating are optional: when warned about unsaved data, Sam can select **No, start new roundtable** to purge the old session and its evaluation and proceed immediately.
@@ -162,7 +174,9 @@ Closeout is coordinated with the active generation lock so interrupted text is p
 - Momo-authored one-page closeout summary generated with the finalization lock and downloadable independently
 - Immediate **End**, cancellable final summary, and digest-based wrap-up fallback
 - One-session retention with guarded replacement and managed upload cleanup
+- Landing-page create flow includes live session-list check and confirmation before reset to purge prior local sessions
 - Secret loading from ignored local environment files
+- Closeout start-new flow now explicitly uses full local-session purge so “No, start new roundtable” clears all prior transcripts, digests, and uploads (user responsibility to download before proceeding).
 
 ### Explicit current boundaries
 
@@ -189,11 +203,30 @@ This is still a local MVP, not an internet-facing secure service. Authentication
 
 ## Quality status
 
-As of the audit date:
+As of the latest verification run:
 
-- 25 backend tests pass.
+- 46 backend tests pass.
 - The test suite covers rounds, recent-history retention, mention routing, greeting exclusion, digest history, FTS locators, single-session purging, host-deferred continuation, first-token timeout recovery, immediate stalled-stream cancellation with partial-text retention, restart reconciliation, session-task cancellation, bounded prompt context, close/interrupt lifecycle safety, and final-summary cancellation.
 - Frontend type-check and production-build verification is part of the release checklist.
-- Live provider checks remain optional because they consume API capacity and depend on external connectivity.
+- Live provider checks remain optional because they consume external API capacity. The 2026-07-21 approved live audit confirmed:
+  - Momo: `gpt-5.6-luna` (OpenAI Responses), configured and reachable.
+  - Bobby: `gemini-3.1-flash-lite` (Google OpenAI-compatible Chat Completions), configured and reachable.
+- Independent API smoke testing with mocked providers confirms create/document/upload/message/segment/recap/closeout/export transitions.
+- The real-provider PDF simulation completed document and Topic Digests, two discussion segments, requested recap, final summary, one-page summary, and exports without provider errors, truncation, or fallback.
+
+### Latest connection audit highlights
+
+- `/api/documents/dependencies` initially returned limited metadata due schema and runtime version lookup; this is now fixed to return mixed metadata safely and to resolve `pymupdf_version` from the installed `fitz` module (`1.28.0`).
+- Duplicate create without `force_reset` correctly returns `409`, then reset path succeeds with `201`.
+- The provided PDF source parses locally into many passages (27 passages, 48,474 chars total, max passage 3,598 chars), confirming parser and table/figure extraction stack are healthy before model-dependent digest.
+- The document digest completed in 74.3 seconds and the refined Topic Digest in 6.9 seconds before substantive conversation began. Source boundaries remained present in final state; ordinary live turns now carry processed digests rather than raw extracts.
+- Two-round live segments completed in 16.9 and 9.0 seconds, with first SSE events in 0.07-0.10 seconds. Six substantive AI turns were about 105-140 words each.
+- The requested recap completed in 133.5 seconds. It remains within the 900-second background-job limit and does not block Sam's conversation controls, but is the current latency watch item.
+- Final and one-page summaries completed in 14.5 and 4.3 seconds; Markdown and one-page exports were approximately 49.9 KB and 2.7 KB.
+
+### Note
+
+- Fixed source-digest context handling where parsed JSON digests (`dict`) were not string-safe during streaming context assembly.
+- Fixed `/api/documents/dependencies` return typing from fixed-`bool` to metadata-safe payload (`dict[str, bool | str | None]`) to avoid 500 validation errors.
 
 See [LEARNING-QUALITY-EVALUATION.md](LEARNING-QUALITY-EVALUATION.md) for the evaluation harness and pilot process, [CRITICAL-REVIEW.md](CRITICAL-REVIEW.md) for the prioritized agent-system review, [INDEPENDENT-AUDIT.md](INDEPENDENT-AUDIT.md) for the broader audit, and [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md) for the next agile increments.

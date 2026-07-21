@@ -2,6 +2,8 @@
   <img src="frontend/public/academic-roundtable-logo.png" alt="Academic Roundtable logo" width="150">
 </p>
 
+> Security review applies to this authoritative workspace: `academic-roundtable-github-ready`.
+
 # Security Policy
 
 ## Current support boundary

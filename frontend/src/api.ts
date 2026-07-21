@@ -36,11 +36,13 @@ export const api = {
     rounds_per_segment: number;
     sources_only: boolean;
     periodic_summary: boolean;
+    force_reset: boolean;
   }) => request<Session>("/api/sessions", { method: "POST", body: JSON.stringify(payload) }),
   updateSession: (id: string, payload: Record<string, unknown>) =>
     request<Session>(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   health: () => request<{ status: string; providers: ProviderHealth[] }>("/api/health"),
   documentDependencies: () => request<DocumentDependencies>("/api/documents/dependencies"),
+  purgeSessions: () => request<void>("/api/sessions", { method: "DELETE" }),
   interrupt: (id: string) =>
     request<{ interrupted: boolean }>(`/api/sessions/${id}/interrupt`, { method: "POST" }),
   closeSession: (id: string) =>

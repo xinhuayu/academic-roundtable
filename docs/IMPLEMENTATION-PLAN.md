@@ -2,6 +2,9 @@
   <img src="../frontend/public/academic-roundtable-logo.png" alt="Academic Roundtable logo" width="150">
 </p>
 
+> Canonical source: This is the active `academic-roundtable-github-ready` workspace.
+> The sibling `academic-roundtable/` folder is archived and not for new development.
+
 # Academic Roundtable: Lean Implementation Plan
 
 Last reviewed: 2026-07-20
@@ -44,7 +47,7 @@ The project uses short, testable increments. It does not add multi-user or cloud
 ### 3. Focus and memory — complete
 
 - Provisional Topic Digest and latest Conversation Digest
-- Minimum five recent complete rounds in live context
+- The five most recent complete rounds in live context
 - Automatic digest scheduling every five or six completed rounds
 - Natural-language and interface-triggered recaps
 - Append-only digest history for final synthesis and export
@@ -57,6 +60,8 @@ The project uses short, testable increments. It does not add multi-user or cloud
 - Page/section extraction and hierarchical source digestion
 - Table extraction prefers structural cues from pdfplumber and PyMuPDF, with pypdf fallback
 - SQLite FTS5 passage retrieval with locators
+- Digest-only source context during ordinary rounds; no raw passages are repeatedly sent
+- Explicit Sam requests to check the original source/PDF/document activate one-segment passage retrieval with source-sized token and timeout limits
 - Sources-only evidence policy
 - Clearly labeled model background knowledge when permitted
 - Public API redaction of internal managed-file paths
@@ -75,7 +80,7 @@ The project uses short, testable increments. It does not add multi-user or cloud
 
 The independent audit added:
 
-- Server-side rejection of a new session until the current one is `CLOSED`
+- Server-side rejection of a new session when any prior session is non-closed unless reset is explicitly requested
 - Removal of internal upload paths from session, upload, document, JSON, and archive metadata
 - Explicit first-token deadline enforcement
 - Close/interrupt race protection so streaming cleanup cannot reopen a closing session
@@ -92,15 +97,15 @@ The professional agent-system review implemented the highest-priority controls b
 - Session ownership and orderly cancellation of background work before close or purge
 - Startup reconciliation for abandoned jobs, documents, rounds, and transient session states
 - Explicit per-section and total context ceilings with visible clipping
-- Untrusted-evidence labeling for uploaded source passages
+- Untrusted-evidence labeling for source passages retrieved only during explicit verification
 - Regression tests for all four reliability changes
 
 The prioritized rationale and postponed work are recorded in [CRITICAL-REVIEW.md](CRITICAL-REVIEW.md).
 
 ## Multi-provider reasoning and latency increment — complete
 
-- Momo and Bobby may use separate OpenAI-compatible providers; the environment template now demonstrates OpenAI for Momo and Gemini 3.1 Flash-Lite for Bobby.
-- The Chat Completions adapter forwards `reasoning_effort`, matching the existing Responses behavior.
+- Momo and Bobby may use separate provider stacks; the environment template demonstrates OpenAI for Momo and Gemini 3.1 Flash-Lite for Bobby.
+- The Chat Completions adapter forwards `reasoning_effort`; Anthropic Messages is also available as an optional Bobby alternative.
 - Live turns remain low-reasoning and concise, while source/topic/conversation/final digests and learning evaluation use medium reasoning.
 - Per-provider connection, first-token, stream-idle, and total-turn limits are configurable without code changes.
 - Background digest sections and complete synthesis jobs have separate, longer configurable deadlines.
@@ -200,7 +205,7 @@ Potential scope:
 | Topic digest | at least 3,000; default 6,000 | background |
 | Source section/synthesis | at least 4,000; default 8,000 | background |
 
-Live context keeps the participant protocol, Sam's direction, Topic Digest, latest Conversation Digest, five recent rounds, and targeted evidence. Complete digest history is reserved for final synthesis and export.
+Live context keeps the participant protocol, Sam's direction, Topic Digest, latest Conversation Digest, five recent rounds, and processed document digest. Targeted raw evidence is added only for a one-segment original-source verification request from Sam. Complete digest history is reserved for final synthesis and export.
 
 Timeout defaults are provider-configurable: 10 seconds to connect, 45 seconds to first token, 45 seconds of stream-read idle time, and 180 seconds total per live turn. Digest operations have longer explicit task deadlines.
 

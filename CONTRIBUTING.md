@@ -2,6 +2,8 @@
   <img src="frontend/public/academic-roundtable-logo.png" alt="Academic Roundtable logo" width="150">
 </p>
 
+> Working copy: This repository copy (`academic-roundtable-github-ready`) is the authoritative folder for all contributions and verification.
+
 # Contributing to Academic Roundtable
 
 Thank you for helping improve **deep conversations for better learning**. Keep changes lean, observable, and centered on the learning experience.

@@ -2,6 +2,9 @@
   <img src="../frontend/public/academic-roundtable-logo.png" alt="Academic Roundtable logo" width="150">
 </p>
 
+> Canonical source: This is the active `academic-roundtable-github-ready` workspace.
+> The sibling `academic-roundtable/` folder is archived and not for new development.
+
 # GitHub Release Checklist
 
 ## Required before the first push
@@ -12,7 +15,7 @@
 - [ ] Confirm `.env.local` is ignored and absent from `git status` and `git ls-files`.
 - [ ] Scan the full candidate commit and history for secrets.
 - [ ] Confirm `data/`, uploads, exports, logs, dependencies, caches, and build artifacts are untracked.
-- [ ] Run 33 backend tests, the frontend test suite, and the frontend production build from the clean copy.
+- [ ] Run **46 backend tests**, the frontend test suite, and the frontend production build from the clean copy.
 - [ ] Review README limitations and security warnings.
 - [ ] Configure private vulnerability reporting before inviting outside users.
 
@@ -23,6 +26,17 @@
 - Enable secret scanning and push protection when available.
 - Disable unnecessary workflow write permissions.
 - Keep Actions permissions read-only by default.
+
+## Latest prepared-archive verification (2026-07-21)
+
+- [x] 46 backend tests passed.
+- [x] Frontend Vitest suite passed.
+- [x] Frontend production build passed.
+- [x] Candidate source files passed checks for common OpenAI, Google, and Anthropic key formats, private-key blocks, and developer-specific absolute paths.
+- [x] Archive entry inspection found no `.env.local`, runtime database, uploaded source, transcript, log, cache, dependency directory, or compiled build output.
+- [x] `.env.example`, README, logo, backend source, frontend source, tests, skills, and documentation are present.
+
+This verifies the prepared local archive only. A GitHub history scan remains required after repository initialization and before publication.
 
 ## Local credential retained in the prepared copy
 

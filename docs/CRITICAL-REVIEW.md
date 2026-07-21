@@ -2,6 +2,9 @@
   <img src="../frontend/public/academic-roundtable-logo.png" alt="Academic Roundtable logo" width="150">
 </p>
 
+> Canonical source: This is the active `academic-roundtable-github-ready` workspace.
+> The sibling `academic-roundtable/` folder is archived and not for new development.
+
 # Professional Agent-System Critical Review
 
 Date: 2026-07-20  
@@ -47,7 +50,7 @@ At application startup, abandoned queued/running jobs, processing documents, act
 
 ### Explicit context budgets
 
-Every live request still includes the Topic Digest, latest Conversation Digest, active question, recent conversation history, and retrieved evidence, but each section and the combined history now have hard character budgets. Clipping is visible in the prompt and never deletes stored data. Uploaded material is labeled as untrusted source evidence so document text cannot masquerade as system instruction.
+Every live request includes the Topic Digest, latest Conversation Digest, active question, the five most recent complete rounds, and any processed document digest, with hard character budgets for each section and the combined history. Ordinary rounds do not resend raw passages. Only Sam's explicit request to check or verify the original source activates one-segment retrieval; those excerpts are labeled as untrusted evidence so document text cannot masquerade as system instruction. Clipping is visible in the prompt and never deletes stored data.
 
 Character ceilings are a pragmatic MVP control. A later provider-capability layer should estimate tokens per model and reserve output capacity precisely.
 

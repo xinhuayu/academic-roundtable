@@ -14,6 +14,7 @@ class SessionCreate(BaseModel):
     rounds_per_segment: int = Field(default=2, ge=2, le=5)
     sources_only: bool = False
     periodic_summary: bool = False
+    force_reset: bool = False
 
 
 class SamMessage(BaseModel):

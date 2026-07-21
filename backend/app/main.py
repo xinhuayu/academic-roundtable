@@ -26,7 +26,11 @@ from .schemas import (
     SessionCreate,
     SessionSettingsUpdate,
 )
-from .service import RoundtableService, infer_participant_target
+from .service import (
+    RoundtableService,
+    infer_participant_target,
+    is_source_verification_request,
+)
 
 
 settings = get_settings()
@@ -151,6 +155,17 @@ def remove_managed_uploads(paths: list[str]) -> None:
             continue
 
 
+async def purge_all_sessions_safely() -> None:
+    sessions = database.list_sessions()
+    for session_item in sessions:
+        await service.interrupt_and_wait(session_item["id"])
+        await service.cancel_session_background_tasks(session_item["id"])
+        wait_idle = getattr(service, "wait_until_session_idle", None)
+        if callable(wait_idle):
+            await wait_idle(session_item["id"])
+    remove_managed_uploads(database.purge_all_sessions())
+
+
 @app.get("/api/meta")
 async def meta() -> dict[str, Any]:
     return {
@@ -164,7 +179,7 @@ async def meta() -> dict[str, Any]:
 
 
 @app.get("/api/documents/dependencies")
-async def document_dependencies() -> dict[str, bool]:
+async def document_dependencies() -> dict[str, object]:
     return extract_dependency_health()
 
 
@@ -181,16 +196,17 @@ async def list_sessions() -> list[dict[str, Any]]:
 @app.post("/api/sessions", status_code=201)
 async def create_session(payload: SessionCreate) -> dict[str, Any]:
     previous_sessions = database.list_sessions()
-    if previous_sessions and previous_sessions[0]["state"] != "CLOSED":
+    has_unclosed_session = any(session["state"] != "CLOSED" for session in previous_sessions)
+    if has_unclosed_session and not payload.force_reset:
         raise HTTPException(
             status_code=409,
-            detail="Conclude the current session and save its record before starting a new one",
+            detail=(
+                "An active session exists. Start this roundtable with force_reset=true to purge old sessions, "
+                "or close the current session first."
+            ),
         )
-    for previous in previous_sessions:
-        await service.interrupt_and_wait(previous["id"])
-        await service.cancel_session_background_tasks(previous["id"])
-        await service.wait_until_session_idle(previous["id"])
-    remove_managed_uploads(database.purge_all_sessions())
+    if payload.force_reset:
+        await purge_all_sessions_safely()
     session = database.create_session(
         topic=payload.topic,
         learning_goal=payload.learning_goal,
@@ -374,6 +390,7 @@ async def add_sam_message(session_id: str, payload: SamMessage) -> dict[str, Any
         raise HTTPException(status_code=409, detail="This session has already concluded")
     was_interrupted = await service.interrupt_and_wait(session_id)
     inferred_target = infer_participant_target(payload.content, payload.target)
+    source_verification_requested = is_source_verification_request(payload.content)
     message = database.add_message(
         session_id,
         "Sam",
@@ -383,6 +400,7 @@ async def add_sam_message(session_id: str, payload: SamMessage) -> dict[str, Any
             "interrupted_active_segment": was_interrupted,
             "explicit_target": payload.target,
             "inferred_target": inferred_target,
+            "source_verification_requested": source_verification_requested,
         },
     )
     database.update_session(session_id, active_question=payload.content)
@@ -435,8 +453,16 @@ async def discard_session(session_id: str) -> Response:
     await service.interrupt_and_wait(session_id)
     await service.cancel_final_summary(session_id)
     await service.cancel_session_background_tasks(session_id)
-    await service.wait_until_session_idle(session_id)
-    remove_managed_uploads(database.purge_all_sessions())
+    wait_idle = getattr(service, "wait_until_session_idle", None)
+    if callable(wait_idle):
+        await wait_idle(session_id)
+    await purge_all_sessions_safely()
+    return Response(status_code=204)
+
+
+@app.delete("/api/sessions", status_code=204)
+async def discard_all_sessions() -> Response:
+    await purge_all_sessions_safely()
     return Response(status_code=204)
 
 

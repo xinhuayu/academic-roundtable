@@ -86,6 +86,13 @@ def _module_version(name: str) -> str | None:
     try:
         return importlib.metadata.version(name)
     except Exception:
+        if name == "pymupdf":
+            try:
+                import fitz  # type: ignore
+
+                return getattr(fitz, "__version__", None)
+            except Exception:
+                pass
         return None
 
 

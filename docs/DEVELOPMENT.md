@@ -2,6 +2,9 @@
   <img src="../frontend/public/academic-roundtable-logo.png" alt="Academic Roundtable logo" width="150">
 </p>
 
+> Canonical source: This is the active `academic-roundtable-github-ready` workspace.
+> The sibling `academic-roundtable/` folder is archived and not for new development.
+
 # Development and Testing Guide
 
 ## Development principle
