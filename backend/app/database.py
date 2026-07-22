@@ -427,12 +427,18 @@ class Database:
                 ]
             placeholders = ",".join("?" for _ in round_ids)
             earliest_started = min(row["started_at"] for row in round_rows)
+            latest_sam = db.execute(
+                """SELECT id FROM messages WHERE session_id = ? AND speaker = 'Sam'
+                   ORDER BY created_at DESC, rowid DESC LIMIT 1""",
+                (session_id,),
+            ).fetchone()
+            latest_sam_id = latest_sam["id"] if latest_sam else None
             rows = db.execute(
                 f"""SELECT * FROM messages
                     WHERE session_id = ? AND
-                    (round_id IN ({placeholders}) OR (speaker = 'Sam' AND created_at >= ?))
+                    (round_id IN ({placeholders}) OR (speaker = 'Sam' AND created_at >= ?) OR id = ?)
                     ORDER BY created_at, rowid""",
-                [session_id, *round_ids, earliest_started],
+                [session_id, *round_ids, earliest_started, latest_sam_id],
             ).fetchall()
         return [self._row(row) for row in rows if row]
 

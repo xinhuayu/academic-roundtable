@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -29,8 +29,10 @@ from .schemas import (
 from .service import (
     RoundtableService,
     infer_participant_target,
+    is_summary_request,
     is_source_verification_request,
 )
+from .voice import VoiceTranscriber, VoiceTranscriptionError
 
 
 settings = get_settings()
@@ -41,6 +43,7 @@ database.initialize()
 database.reconcile_abandoned_work()
 adapters = AdapterRegistry(settings)
 service = RoundtableService(settings, database, adapters)
+voice_transcriber = VoiceTranscriber(settings)
 
 app = FastAPI(title="Academic Roundtable", version="0.1.0")
 app.add_middleware(
@@ -55,6 +58,7 @@ app.add_middleware(
 @app.on_event("shutdown")
 async def shutdown() -> None:
     await adapters.close()
+    await voice_transcriber.close()
 
 
 def require_session(session_id: str) -> dict[str, Any]:
@@ -204,6 +208,11 @@ async def meta() -> dict[str, Any]:
         "export_formats": ["archive", "markdown", "summary_digest", "one_page_summary", "json"],
         "pdf_dependencies": extract_dependency_health(),
         "conversation_profiles": service.profile_metadata(),
+        "voice_input": {
+            "configured": voice_transcriber.configured,
+            "model": settings.voice_transcription_model,
+            "max_audio_bytes": settings.voice_max_audio_bytes,
+        },
     }
 
 
@@ -423,10 +432,6 @@ async def update_session(session_id: str, payload: SessionSettingsUpdate) -> dic
     return session_view(session_id)
 
 
-SUMMARY_PATTERN = re.compile(
-    r"\b(summar(?:y|ize)|recap|conversation so far|periodic summar|what have we established)\b",
-    re.IGNORECASE,
-)
 PERIODIC_PATTERN = re.compile(r"\b(periodic|every (?:five|six|5|6) rounds)\b", re.IGNORECASE)
 CLOSING_PATTERN = re.compile(
     r"\b(let(?:'|’)s\s+(?:finish|conclude|wrap\s+up)|"
@@ -473,6 +478,7 @@ async def add_sam_message(session_id: str, payload: SamMessage) -> dict[str, Any
             "explicit_target": payload.target,
             "inferred_target": inferred_target,
             "source_verification_requested": source_verification_requested,
+            "input_method": payload.input_method,
         },
     )
     database.update_session(session_id, active_question=payload.content)
@@ -483,7 +489,7 @@ async def add_sam_message(session_id: str, payload: SamMessage) -> dict[str, Any
         action["closing_message"] = ensure_closing_message(session_id, inferred_target)
         action["final_summary_job"] = service.request_final_summary(session_id)
         action["suggested_action"] = "wait_for_final_summary"
-    elif SUMMARY_PATTERN.search(payload.content):
+    elif is_summary_request(payload.content):
         periodic = True if PERIODIC_PATTERN.search(payload.content) else None
         action["recap_job"] = service.request_recap(session_id, payload.content, periodic)
         action["suggested_action"] = "wait_for_recap"
@@ -628,6 +634,34 @@ async def upload_document(session_id: str, file: UploadFile = File(...)) -> dict
     )
     job = service.request_document_digest(document["id"])
     return {"document": public_document(document), "job": job}
+
+
+@app.post("/api/sessions/{session_id}/voice-transcription")
+async def transcribe_sam_voice(session_id: str, request: Request) -> dict[str, Any]:
+    session = require_session(session_id)
+    if session["state"] in {"CLOSING", "CLOSED"}:
+        raise HTTPException(status_code=409, detail="This session has concluded; voice input is unavailable")
+    await service.interrupt_and_wait(session_id)
+    filename = Path(request.headers.get("x-audio-filename") or "sam-voice.webm").name
+    audio = bytearray()
+    async for chunk in request.stream():
+        audio.extend(chunk)
+        if len(audio) > settings.voice_max_audio_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Voice recording exceeds the {settings.voice_max_audio_bytes // (1024 * 1024)} MB limit",
+            )
+    if not audio:
+        raise HTTPException(status_code=422, detail="Voice recording is empty")
+    try:
+        return await voice_transcriber.transcribe(
+            bytes(audio),
+            filename,
+            request.headers.get("content-type") or "application/octet-stream",
+            database.get_session(session_id) or session,
+        )
+    except VoiceTranscriptionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @app.get("/api/sessions/{session_id}/jobs")

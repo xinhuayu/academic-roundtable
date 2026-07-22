@@ -16,7 +16,7 @@ Academic Roundtable has a strong product thesis: **deep conversations for better
 
 The local MVP architecture is appropriate for pilot use. React, FastAPI, SQLite, server-sent events, and provider adapters keep the system understandable and inexpensive to change. The most important weaknesses were lifecycle reliability rather than missing features: an interrupted provider call could remain blocked, background work could race with session deletion, restarts could leave false running states, and accumulated context could degrade latency. These priority-zero issues are now addressed.
 
-The next investment should be measurement, not feature expansion. The system needs evidence that its debate pattern improves learning and that its digests preserve the intellectual thread. Multi-user hosting, embeddings, OCR, voice, and other broad features should remain postponed until pilot evidence justifies them.
+The next investment should still emphasize measurement. The manually stopped, review-before-submit Sam voice-input increment is now implemented because it improves host accessibility without changing the text-centered orchestration model. Multi-user hosting, embeddings, OCR, continuous voice interaction, and other broad features should remain postponed until pilot evidence justifies them.
 
 ## Priority findings and disposition
 
@@ -89,7 +89,7 @@ Add authentication, authorization, per-user data isolation, durable migrations, 
 
 ## Verification recommendations
 
-The deterministic suite now covers immediate stalled-stream cancellation, partial text retention, startup reconciliation, cancellation of session-owned background work, bounded context assembly, timeout recovery, lifecycle races, strict retention, post-close immutability, summary cancellation, latest-summary export selection, recap deduplication, retrieval locators, and routing. Add frontend interaction tests for closeout confirmation and accessibility. Live-provider smoke tests should remain opt-in because they consume capacity and are nondeterministic.
+The deterministic suite now covers immediate stalled-stream cancellation, partial text retention, startup reconciliation, cancellation of session-owned background work, bounded context assembly, timeout recovery, lifecycle races, strict retention, post-close immutability, summary cancellation, latest-summary export selection, recap deduplication, explicit recap-intent discrimination, multi-round latest-Sam retention, long-input deadline persistence, retrieval locators, and routing. Add frontend interaction tests for closeout confirmation and accessibility. Live-provider smoke tests should remain opt-in because they consume capacity and are nondeterministic.
 
 ## Lean decision rule
 

@@ -18,6 +18,7 @@ For a GitHub-hosted repository, use GitHub's private vulnerability-reporting or 
 
 - Store real credentials only in `.env.local` or another ignored local secret store.
 - Never commit `.env.local`, `.env`, logs, databases, exported sessions, or uploaded sources.
+- Voice recordings are transmitted to the configured OpenAI transcription endpoint and held only in memory by the local server. They must not be logged, written to the upload directory, added to exports, or retained after transcription; only Sam's explicitly submitted edited text belongs in session history.
 - Use `.env.example` only for empty placeholders and non-secret defaults.
 - Revoke and replace any credential that may have entered a commit, build artifact, screenshot, log, or issue.
 - Before publishing, scan the entire Git history, not only the current working tree.

@@ -69,6 +69,32 @@ def is_source_verification_request(content: str) -> bool:
     )
 
 
+SUMMARY_REQUEST_PATTERN = re.compile(
+    r"(?:^|[.!?;]\s+)\s*(?:(?:okay|ok|thanks|thank\s+you|great|now)\s*[,;:\-]?\s*)?(?:"
+    r"(?:please\s+)?(?:let(?:'|\u2019)s\s+)?(?:"
+    r"(?:summarize|recap)\s*(?:[.!?]|$)|"
+    r"(?:summarize|recap)\s+(?:(?:the|our|this)\s+)?(?:recent\s+)?"
+    r"(?:conversations?|discussions?|roundtable|exchanges?|talks?)(?:\s+so\s+far)?\b|"
+    r"(?:summarize|recap)\s+(?:what|where)\b"
+    r")|"
+    r"(?:please\s+)?(?:give|provide|show)\s+(?:(?:me|us)\s+)?(?:a\s+)?"
+    r"(?:periodic\s+)?(?:summary|recap)\b|"
+    r"(?:can|could|would)\s+(?:you|we)\s+(?:please\s+)?(?:"
+    r"(?:summarize|recap)\s*(?:[.!?]|$)|"
+    r"(?:summarize|recap)\s+(?:(?:the|our|this)\s+)?(?:recent\s+)?"
+    r"(?:conversations?|discussions?|roundtable|exchanges?|talks?)(?:\s+so\s+far)?\b"
+    r")|"
+    r"what\s+have\s+we\s+established\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def is_summary_request(content: str) -> bool:
+    """Detect an explicit request to recap the roundtable, not a topical use of 'summary'."""
+    return bool(SUMMARY_REQUEST_PATTERN.search(content))
+
+
 def parse_json_object(text: str) -> dict[str, Any] | None:
     stripped = text.strip()
     if stripped.startswith("```"):
@@ -278,6 +304,40 @@ class RoundtableService:
     def _scaled_timeout(self, base_seconds: float, multiplier: float, minimum: float = 1.0) -> float:
         return max(minimum, base_seconds * multiplier)
 
+    def _has_long_sam_input(
+        self,
+        session_id: str,
+        recent: list[dict[str, Any]] | None = None,
+    ) -> bool:
+        messages = recent if recent is not None else self.db.recent_round_messages(
+            session_id, self.settings.recent_round_count
+        )
+        latest_sam_message = next(
+            (message for message in reversed(messages) if message.get("speaker") == "Sam"),
+            None,
+        )
+        return bool(
+            latest_sam_message
+            and (
+                (latest_sam_message.get("metadata") or {}).get("input_method") == "voice"
+                or len(str(latest_sam_message.get("content") or ""))
+                >= self.settings.long_sam_input_threshold_chars
+            )
+        )
+
+    def _turn_timeout_multiplier(
+        self,
+        session_id: str,
+        profile_timeout_multiplier: float,
+        source_timeout_multiplier: float = 1.0,
+    ) -> float:
+        long_input_multiplier = (
+            self.settings.long_sam_input_timeout_multiplier
+            if self._has_long_sam_input(session_id)
+            else 1.0
+        )
+        return source_timeout_multiplier * profile_timeout_multiplier * long_input_multiplier
+
     def _lock(self, session_id: str) -> asyncio.Lock:
         return self.session_locks.setdefault(session_id, asyncio.Lock())
 
@@ -373,13 +433,14 @@ class RoundtableService:
         )
         source_token_multiplier = self._source_boosts(session["id"])[0] if source_verification else 1.0
         source_context = self._build_source_context(session["id"])
+        long_sam_input = self._has_long_sam_input(session["id"], recent)
         transcript = join_with_budget(
             [
                 f"{message['speaker']} ({message['status']}): {message['content']}"
                 for message in recent
             ],
-            total_limit=48000,
-            item_limit=3200,
+            total_limit=64000 if long_sam_input else 48000,
+            item_limit=10000 if long_sam_input else 3200,
             label="recent turn",
         ) or "No completed discussion turns yet."
         query = session.get("active_question") or session["topic"]
@@ -483,14 +544,17 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
             ],
             max_output_tokens=self._scaled_tokens(
                 self._speaker_live_token_budget(speaker),
-                source_token_multiplier * profile["token_multiplier"],
+                source_token_multiplier
+                * profile["token_multiplier"]
+                * (self.settings.long_sam_input_token_multiplier if long_sam_input else 1.0),
             ),
             reasoning_effort=profile["reasoning_effort"],
             verbosity="low",
             model=profile["model"],
             stream_idle_timeout=self._scaled_timeout(
                 self.adapters.get(speaker).config.stream_idle_timeout,
-                profile["timeout_multiplier"],
+                profile["timeout_multiplier"]
+                * (self.settings.long_sam_input_timeout_multiplier if long_sam_input else 1.0),
             ),
         )
 
@@ -617,7 +681,11 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                         turn_profile = self._profile_parameters(
                             current, speaker, source_verification=source_verification, task="live"
                         )
-                        per_turn_timeout = source_timeout_multiplier * turn_profile["timeout_multiplier"]
+                        per_turn_timeout = self._turn_timeout_multiplier(
+                            session_id,
+                            turn_profile["timeout_multiplier"],
+                            source_timeout_multiplier,
+                        )
                         yield {
                             "type": "message_start",
                             "speaker": speaker,

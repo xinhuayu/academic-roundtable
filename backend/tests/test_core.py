@@ -15,6 +15,7 @@ from app.service import (
     RoundtableService,
     infer_participant_target,
     is_host_invitation,
+    is_summary_request,
     is_source_verification_request,
     parse_json_object,
 )
@@ -54,6 +55,27 @@ def test_recent_rounds_keep_sam_interventions(tmp_path: Path) -> None:
     assert "Momo 0" not in contents
     assert "Momo 2" in contents
     assert "Keep this direction" in contents
+
+
+def test_recent_rounds_always_keep_latest_sam_direction(tmp_path: Path) -> None:
+    db = make_db(tmp_path)
+    session = db.create_session("Voice direction", "Retain the host's turn", 2, False, False)
+    db.add_message(
+        session["id"],
+        "Sam",
+        "A long voice contribution that must guide the complete AI segment.",
+        metadata={"input_method": "voice"},
+    )
+    for index in range(2):
+        round_row = db.create_round(session["id"])
+        db.add_message(session["id"], "Momo", f"Momo {index}", round_id=round_row["id"])
+        db.add_message(session["id"], "Bobby", f"Bobby {index}", round_id=round_row["id"])
+        db.complete_round(round_row["id"])
+
+    recent = db.recent_round_messages(session["id"], 5)
+
+    assert recent[0]["speaker"] == "Sam"
+    assert recent[0]["metadata"]["input_method"] == "voice"
 
 
 def test_json_parser_handles_fenced_json() -> None:
@@ -836,12 +858,126 @@ def test_live_context_is_bounded_and_marks_clipped_content(tmp_path: Path) -> No
     assert "UNTRUSTED ORIGINAL SOURCE EXCERPT" in verification_context
     assert "Context limits evidence" in verification_context
     assert len(context) < 60000
-    assert request.max_output_tokens == 1200
-    assert bobby_request.max_output_tokens == 2100
-    assert verification_request.max_output_tokens == 2400
-    assert bobby_verification_request.max_output_tokens == 4200
+    assert request.max_output_tokens == 1800
+    assert bobby_request.max_output_tokens == 3150
+    assert verification_request.max_output_tokens == 3600
+    assert bobby_verification_request.max_output_tokens == 6300
     assert verification_request.reasoning_effort == "high"
     assert verification_request.model == "gpt-5.6-sol"
+
+
+def test_voice_comment_gets_larger_context_token_and_timeout_allowances(tmp_path: Path) -> None:
+    db = make_db(tmp_path)
+    session = db.create_session("Long host comment", "Engage Sam fully", 2, False, False)
+    spoken_comment = "Sam's extended methodological argument " + ("qualification " * 450)
+    db.add_message(
+        session["id"],
+        "Sam",
+        spoken_comment,
+        metadata={"input_method": "voice"},
+    )
+    provider = ProviderConfig(
+        participant="Momo", base_url="https://example.invalid/v1", model="fake",
+        api_style="responses", api_key_env="FAKE_KEY", reasoning_effort="low",
+        stream_idle_timeout=40,
+    )
+    settings = Settings(
+        project_root=tmp_path, data_dir=tmp_path, uploads_dir=tmp_path / "uploads",
+        db_path=tmp_path / "test.sqlite3", host="127.0.0.1", port=8765,
+        digest_provider="momo", digest_interval=6, recent_round_count=5,
+        host_checkpoint_interval=3, live_max_output_tokens=350,
+        conversation_digest_max_output_tokens=2000, topic_digest_max_output_tokens=3000,
+        source_digest_max_output_tokens=4000, momo=provider, bobby=provider,
+    )
+    service = RoundtableService(settings, db, FakeRegistry())
+
+    request = service.build_context(db.get_session(session["id"]), "Momo", 0)
+
+    assert spoken_comment in request.messages[0]["content"]
+    assert request.max_output_tokens == 1800
+    assert request.stream_idle_timeout == 118.125
+
+
+def test_voice_budgets_and_timeout_multiplier_persist_across_two_rounds(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db = make_db(tmp_path)
+    session = db.create_session("Long voice segment", "Keep Sam's full direction", 2, False, False)
+    spoken_comment = "Sam's extended methodological argument " + ("qualification " * 450)
+    db.add_message(
+        session["id"],
+        "Sam",
+        spoken_comment,
+        metadata={"input_method": "voice"},
+    )
+    provider = ProviderConfig(
+        participant="Momo", base_url="https://example.invalid/v1", model="fake",
+        api_style="responses", api_key_env="FAKE_KEY", reasoning_effort="low",
+        first_token_timeout=45, stream_idle_timeout=45, total_timeout=180,
+    )
+    settings = Settings(
+        project_root=tmp_path, data_dir=tmp_path, uploads_dir=tmp_path / "uploads",
+        db_path=tmp_path / "test.sqlite3", host="127.0.0.1", port=8765,
+        digest_provider="momo", digest_interval=6, recent_round_count=5,
+        host_checkpoint_interval=3, live_max_output_tokens=350,
+        conversation_digest_max_output_tokens=2000, topic_digest_max_output_tokens=3000,
+        source_digest_max_output_tokens=4000, momo=provider, bobby=provider,
+    )
+    registry = FakeRegistry()
+    registry.items["Momo"].config = provider
+    registry.items["Bobby"].config = provider
+    service = RoundtableService(settings, db, registry)
+    observed_deadlines: list[float | None] = []
+    original_timeout = asyncio.timeout
+
+    def recording_timeout(delay: float | None):
+        observed_deadlines.append(delay)
+        return original_timeout(delay)
+
+    monkeypatch.setattr("app.service.asyncio.timeout", recording_timeout)
+
+    async def collect():
+        return [event async for event in service.stream_segment(session["id"], rounds=2)]
+
+    events = asyncio.run(collect())
+
+    assert sum(event["type"] == "round_complete" for event in events) == 2
+    assert [request.max_output_tokens for request in registry.items["Momo"].requests] == [1800, 1800]
+    assert [request.max_output_tokens for request in registry.items["Bobby"].requests] == [3150, 3150]
+    assert all(request.stream_idle_timeout == 118.125 for request in registry.items["Momo"].requests)
+    assert all(request.stream_idle_timeout == 118.125 for request in registry.items["Bobby"].requests)
+    assert service._turn_timeout_multiplier(session["id"], 1.5) == 2.625
+    assert 118.125 in observed_deadlines
+    assert 472.5 in observed_deadlines
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "Let's summarize the conversation so far.",
+        "Let's recap.",
+        "Please give a periodic summary.",
+        "Could you summarize our discussion?",
+        "What have we established about the estimand?",
+        "Okay, let's recap the recent conversations.",
+        "That resolves the first issue. Now, please summarize our exchange.",
+    ],
+)
+def test_explicit_summary_requests_are_detected(content: str) -> None:
+    assert is_summary_request(content) is True
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "A trajectory is a statistical summary of repeated observations.",
+        "The summary statistic may be biased by informative attrition.",
+        "We should summarize baseline covariates in Table 1.",
+        "Bobby's recap of the causal assumptions was too strong.",
+    ],
+)
+def test_topical_summary_language_does_not_request_a_recap(content: str) -> None:
+    assert is_summary_request(content) is False
 
 
 @pytest.mark.parametrize(

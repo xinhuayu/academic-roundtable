@@ -80,11 +80,24 @@ The project uses short, testable increments. It does not add multi-user or cloud
 - Momo-authored synthesis-only comprehensive Summary Digest using a dedicated critical-synthesis skill, plus a separate one-page learning summary (key concepts, main issues, strategies, research priorities), readable transcript, and ZIP archive downloads; Topic, processed-source, latest Conversation, historical digest, and structured session JSON remain inside the archive
 - Guarded one-session retention, optional save/evaluation handoff, and safe one-choice purge before replacement
 
+### Sam voice-input increment — complete
+
+- Record during Sam's floor or interrupt an active AI segment and begin speaking
+- Continue recording until Sam manually stops, with no duration cutoff; retain only the provider-compatible audio-size safeguard
+- Send the in-memory recording to the configurable OpenAI transcription endpoint without saving audio locally
+- Guide transcription with the topic, active question, and academic terminology while limiting correction to spelling, punctuation, and obvious grammar
+- Return an editable draft to Sam; never auto-submit a transcription
+- Expand Sam message validation to 24,000 characters and apply larger recent-turn context, response-token, and timeout multipliers for voice-derived or otherwise long input
+- Retain the latest Sam contribution through every AI round in the segment and apply the long-input multiplier consistently to first-token, stream-idle, and total-turn deadlines
+- Require an explicit recap command so ordinary academic uses of “summary” do not interrupt conversation routing
+- Surface unbounded elapsed recording time, transcription progress, privacy disclosure, and review-ready status inside Sam's persistent composer
+- Cover endpoint lifecycle/size guards, provider request construction, configuration, long-input budgets, and frontend states with deterministic tests
+
 ## Audit stabilization increment — complete
 
 The independent audit added:
 
-- Server-side rejection of a new session when any prior session is non-closed unless reset is explicitly requested
+- Server-side rejection of a new session whenever any prior session is retained unless reset is explicitly requested
 - Removal of internal upload paths from session, upload, document, JSON, and archive metadata
 - Explicit first-token deadline enforcement
 - Close/interrupt race protection so streaming cleanup cannot reopen a closing session

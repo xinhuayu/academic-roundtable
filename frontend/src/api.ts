@@ -1,4 +1,4 @@
-import type { DocumentDependencies, EvaluationRatings, LearningEvaluationBundle, ProviderHealth, Session, StreamEvent } from "./types";
+import type { AppMetadata, DocumentDependencies, EvaluationRatings, LearningEvaluationBundle, ProviderHealth, Session, StreamEvent } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
@@ -43,6 +43,7 @@ export const api = {
     request<Session>(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   health: () => request<{ status: string; providers: ProviderHealth[] }>("/api/health"),
   documentDependencies: () => request<DocumentDependencies>("/api/documents/dependencies"),
+  meta: () => request<AppMetadata>("/api/meta"),
   purgeSessions: () => request<void>("/api/sessions", { method: "DELETE" }),
   interrupt: (id: string) =>
     request<{ interrupted: boolean }>(`/api/sessions/${id}/interrupt`, { method: "POST" }),
@@ -76,6 +77,19 @@ export const api = {
       method: "POST",
       body: form,
     });
+  },
+  transcribeVoice: async (id: string, file: File) => {
+    return request<{ text: string; model: string; characters: number }>(
+      `/api/sessions/${id}/voice-transcription`,
+      {
+        method: "POST",
+        body: file,
+        headers: {
+          "Content-Type": file.type || "application/octet-stream",
+          "X-Audio-Filename": file.name,
+        },
+      },
+    );
   },
   streamSegment: async (
     id: string,

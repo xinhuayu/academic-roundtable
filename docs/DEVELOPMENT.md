@@ -15,7 +15,9 @@ This `academic-roundtable-github-ready` folder is the canonical development base
 
 ## Repository roles
 
-- `backend/app`: FastAPI routes, SQLite persistence, orchestration, provider adapters, prompts, document processing, and learning evaluation
+- `backend/app`: FastAPI routes, SQLite persistence, orchestration, provider adapters, prompts, document processing, ephemeral voice transcription, and learning evaluation
+
+Voice tests use mocked HTTP transports and synthetic bytes; deterministic tests must never activate a microphone or call the live transcription provider. Manual voice testing requires localhost browser microphone permission and consumes OpenAI API capacity.
 - `backend/tests`: deterministic unit and API lifecycle tests
 - `frontend/src`: React conversation, closeout, and evaluation interface
 - `evaluation/fixtures`: controlled learning-quality scenarios

@@ -1,6 +1,6 @@
 ﻿import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api, exportUrl } from "./api";
-import type { ConversationProfile, DocumentDependencies, EvaluationRatings, Job, LearningEvaluationBundle, Message, ProviderHealth, Session, Speaker, StreamEvent } from "./types";
+import type { AppMetadata, ConversationProfile, DocumentDependencies, EvaluationRatings, Job, LearningEvaluationBundle, Message, ProviderHealth, Session, Speaker, StreamEvent } from "./types";
 
 const speakerMeta: Record<Speaker, { monogram: string; subtitle: string }> = {
   Momo: { monogram: "M", subtitle: "tests and challenges" },
@@ -14,6 +14,54 @@ const profileMeta: Record<ConversationProfile, { label: string; short: string }>
   research: { label: "Research mode", short: "Research" },
   verification: { label: "Verification mode", short: "Verification" },
 };
+
+type VoiceState = "idle" | "recording" | "transcribing";
+
+function voiceTime(seconds: number): string {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function preferredVoiceMimeType(): string {
+  if (typeof MediaRecorder === "undefined") return "";
+  return ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]
+    .find((value) => MediaRecorder.isTypeSupported(value)) ?? "";
+}
+
+export function VoiceInputControl({
+  state,
+  busy,
+  seconds,
+  draftReady,
+  disabled,
+  onToggle,
+}: {
+  state: VoiceState;
+  busy: boolean;
+  seconds: number;
+  draftReady: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="voice-input-row" aria-live="polite">
+      <button
+        type="button"
+        className={`voice-input-button ${state === "recording" ? "is-recording" : ""}`}
+        onClick={onToggle}
+        disabled={disabled || state === "transcribing"}
+      >
+        {state === "recording" ? "Stop recording" : busy ? "Interrupt and speak" : "Voice input"}
+      </button>
+      <span>{state === "recording"
+        ? `Recording ${voiceTime(seconds)} · select Stop recording when finished`
+        : state === "transcribing"
+          ? "AI is transcribing and lightly correcting terminology…"
+          : draftReady
+            ? "Voice draft ready — review and edit before Answer"
+            : "Record until you stop · audio is sent to OpenAI and not saved"}</span>
+    </div>
+  );
+}
 
 function formatDigest(value: unknown): string {
   if (!value) return "Not developed yet.";
@@ -325,9 +373,14 @@ function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [health, setHealth] = useState<ProviderHealth[]>([]);
   const [documentDependencies, setDocumentDependencies] = useState<DocumentDependencies | null>(null);
+  const [appMetadata, setAppMetadata] = useState<AppMetadata | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [composer, setComposer] = useState("");
+  const [composerInputMethod, setComposerInputMethod] = useState<"text" | "voice">("text");
+  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
+  const [voiceSeconds, setVoiceSeconds] = useState(0);
+  const [voiceDraftReady, setVoiceDraftReady] = useState(false);
   const [target, setTarget] = useState("roundtable");
   const [rounds, setRounds] = useState(2);
   const [automaticRoundVariation, setAutomaticRoundVariation] = useState(true);
@@ -343,6 +396,13 @@ function App() {
   const pendingStart = useRef<{ rounds: number; speaker?: "Momo" | "Bobby" } | null>(null);
   const discardedSessionIds = useRef(new Set<string>());
   const wasBusy = useRef(false);
+  const mediaRecorder = useRef<MediaRecorder | null>(null);
+  const mediaStream = useRef<MediaStream | null>(null);
+  const voiceChunks = useRef<Blob[]>([]);
+  const voiceBytes = useRef(0);
+  const voiceStoppedForSize = useRef(false);
+  const voiceTicker = useRef<number | null>(null);
+  const discardVoiceCapture = useRef(false);
 
   const refreshSession = async (id = session?.id) => {
     if (!id) return;
@@ -351,14 +411,22 @@ function App() {
   };
 
   useEffect(() => {
-    Promise.all([api.listSessions(), api.health(), api.documentDependencies()])
-      .then(([available, healthResponse, dependencies]) => {
+    Promise.all([api.listSessions(), api.health(), api.documentDependencies(), api.meta()])
+      .then(([available, healthResponse, dependencies, metadata]) => {
         setHealth(healthResponse.providers);
         setDocumentDependencies(dependencies);
+        setAppMetadata(metadata);
         return available[0] ? api.getSession(available[0].id) : null;
       })
       .then((current) => current && setSession(current))
       .catch((cause) => setError(cause.message));
+  }, []);
+
+  useEffect(() => () => {
+    discardVoiceCapture.current = true;
+    if (mediaRecorder.current?.state === "recording") mediaRecorder.current.stop();
+    mediaStream.current?.getTracks().forEach((track) => track.stop());
+    if (voiceTicker.current !== null) window.clearInterval(voiceTicker.current);
   }, []);
 
   useEffect(() => {
@@ -425,6 +493,7 @@ function App() {
   const hasSamDirection = useMemo(() => session?.messages.some((message) => message.speaker === "Sam" && message.metadata.kind !== "session_opening") ?? false, [session?.messages]);
   const concluded = session?.state === "CLOSING" || session?.state === "CLOSED";
   const pdfDependenciesReady = Boolean(documentDependencies?.pymupdf && documentDependencies?.pdfplumber);
+  const voiceMaxBytes = appMetadata?.voice_input?.max_audio_bytes ?? 25 * 1024 * 1024;
   const chooseRoundCount = () => automaticRoundVariation ? (Math.random() < 0.2 ? 3 : 2) : rounds;
 
   const enqueueInitialSources = async (sessionId: string, sources: File[]) => {
@@ -525,7 +594,9 @@ function App() {
     const content = composer.trim(); setComposer(""); setError("");
     try {
       const plannedRounds = chooseRoundCount();
-      const action = await api.message(session.id, { content, target, continue_rounds: plannedRounds });
+      const action = await api.message(session.id, { content, target, continue_rounds: plannedRounds, input_method: composerInputMethod });
+      setComposerInputMethod("text");
+      setVoiceDraftReady(false);
       await refreshSession(session.id);
       if (action.suggested_action === "start_segment") {
         const speaker = action.starting_speaker === "Momo" || action.starting_speaker === "Bobby" ? action.starting_speaker : undefined;
@@ -537,6 +608,101 @@ function App() {
   };
 
   const interrupt = async () => { if (session) await api.interrupt(session.id); };
+  const stopVoiceRecording = (discard = false) => {
+    discardVoiceCapture.current = discard;
+    if (mediaRecorder.current?.state === "recording") mediaRecorder.current.stop();
+  };
+  const startVoiceRecording = async () => {
+    if (!session || concluded || voiceState !== "idle") return;
+    setError("");
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setError("Voice input is not supported by this browser. Use a current browser or type Sam's response.");
+      return;
+    }
+    try {
+      if (busy) await api.interrupt(session.id);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      const mimeType = preferredVoiceMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      mediaRecorder.current = recorder;
+      mediaStream.current = stream;
+      voiceChunks.current = [];
+      voiceBytes.current = 0;
+      voiceStoppedForSize.current = false;
+      discardVoiceCapture.current = false;
+      setVoiceDraftReady(false);
+      setVoiceSeconds(0);
+      recorder.ondataavailable = (event) => {
+        if (event.data.size <= 0) return;
+        const nextSize = voiceBytes.current + event.data.size;
+        if (nextSize <= voiceMaxBytes) {
+          voiceChunks.current.push(event.data);
+          voiceBytes.current = nextSize;
+        }
+        if (nextSize >= Math.floor(voiceMaxBytes * 0.95) && recorder.state === "recording") {
+          voiceStoppedForSize.current = true;
+          recorder.stop();
+        }
+      };
+      recorder.onstop = async () => {
+        if (voiceTicker.current !== null) window.clearInterval(voiceTicker.current);
+        voiceTicker.current = null;
+        mediaStream.current?.getTracks().forEach((track) => track.stop());
+        mediaStream.current = null;
+        mediaRecorder.current = null;
+        if (discardVoiceCapture.current) {
+          voiceChunks.current = [];
+          setVoiceState("idle");
+          setVoiceSeconds(0);
+          return;
+        }
+        const recordedType = recorder.mimeType || "audio/webm";
+        const blob = new Blob(voiceChunks.current, { type: recordedType });
+        voiceChunks.current = [];
+        voiceBytes.current = 0;
+        if (!blob.size) {
+          setVoiceState("idle");
+          setError("No audio was captured. Check microphone permission and try again.");
+          return;
+        }
+        if (voiceStoppedForSize.current) {
+          setError("Recording reached the transcription service's audio-size capacity and stopped automatically. The captured audio is being transcribed.");
+        }
+        setVoiceState("transcribing");
+        try {
+          const extension = recordedType.includes("mp4") ? "m4a" : recordedType.includes("ogg") ? "ogg" : "webm";
+          const result = await api.transcribeVoice(
+            session.id,
+            new File([blob], `sam-voice-${Date.now()}.${extension}`, { type: recordedType }),
+          );
+          setComposer((current) => `${current.trim()}${current.trim() ? "\n\n" : ""}${result.text}`.slice(0, 24000));
+          setComposerInputMethod("voice");
+          setVoiceDraftReady(true);
+          window.requestAnimationFrame(() => composerInput.current?.focus({ preventScroll: true }));
+        } catch (cause) {
+          setError((cause as Error).message);
+        } finally {
+          setVoiceState("idle");
+        }
+      };
+      recorder.start(1000);
+      setVoiceState("recording");
+      const startedAt = Date.now();
+      voiceTicker.current = window.setInterval(
+        () => setVoiceSeconds(Math.floor((Date.now() - startedAt) / 1000)),
+        500,
+      );
+    } catch (cause) {
+      mediaStream.current?.getTracks().forEach((track) => track.stop());
+      mediaStream.current = null;
+      setVoiceState("idle");
+      setError(cause instanceof DOMException && cause.name === "NotAllowedError"
+        ? "Microphone permission was not granted. Allow access or type Sam's response."
+        : `Could not start voice input: ${(cause as Error).message}`);
+    }
+  };
   const requestRecap = async () => {
     if (!session || recapActive) return;
     setError("");
@@ -611,6 +777,8 @@ function App() {
       await api.purgeSessions();
       setSession(null);
       setComposer("");
+      setComposerInputMethod("text");
+      setVoiceDraftReady(false);
       setRecordDownloaded(false);
       setEvaluation(null);
     } catch (cause) {
@@ -649,7 +817,7 @@ function App() {
         </div>
         <div className="session-nav">
           {session && !concluded
-            ? <button className="button button-stop" onClick={endSession}>End</button>
+            ? <button className="button button-stop" onClick={endSession} disabled={voiceState !== "idle"}>End</button>
             : <span className="session-status">{session ? "Session closeout" : "New roundtable"}</span>}
         </div>
       </header>
@@ -751,13 +919,21 @@ function App() {
 
               <aside className="host-panel" aria-label="Sam's host controls">
                 <div className="host-panel-heading"><div className="avatar">S</div><strong>Sam</strong><span className="host-label-separator" aria-hidden="true">·</span><small>Guide the roundtable</small></div>
-                <form onSubmit={sendMessage} className={`composer ${!busy && !concluded ? "sam-has-floor" : ""}`}>
+                <form onSubmit={sendMessage} className={`composer ${(!busy && !concluded) || voiceState !== "idle" ? "sam-has-floor" : ""} ${voiceState !== "idle" ? `voice-${voiceState}` : ""}`}>
                   <div className="composer-topline"><label>Address <select value={target} onChange={(event) => setTarget(event.target.value)}><option value="roundtable">Automatic</option><option value="Momo">Momo</option><option value="Bobby">Bobby</option><option value="both">Both independently</option></select></label><span>Names and @mentions override</span></div>
+                  <VoiceInputControl
+                    state={voiceState}
+                    busy={busy}
+                    seconds={voiceSeconds}
+                    draftReady={voiceDraftReady}
+                    disabled={concluded || appMetadata?.voice_input?.configured === false}
+                    onToggle={() => voiceState === "recording" ? stopVoiceRecording() : startVoiceRecording()}
+                  />
                   <div className="composer-actions">
-                    {!concluded && <div className="quick-actions"><button type="button" onClick={requestRecap} disabled={recapActive}>Recap</button><button type="button" onClick={() => setComposer("What evidence would distinguish these explanations?")}>Evidence</button><button type="button" onClick={() => setComposer(`Return to the active question: ${session.active_question}`)}>Refocus</button></div>}
-                    <button type="submit" className="button button-primary composer-submit" disabled={concluded || !composer.trim()}>{concluded ? "Ended" : "Answer"}</button>
+                    {!concluded && <div className="quick-actions"><button type="button" onClick={requestRecap} disabled={recapActive}>Recap</button><button type="button" onClick={() => { setComposerInputMethod("text"); setVoiceDraftReady(false); setComposer("What evidence would distinguish these explanations?"); }}>Evidence</button><button type="button" onClick={() => { setComposerInputMethod("text"); setVoiceDraftReady(false); setComposer(`Return to the active question: ${session.active_question}`); }}>Refocus</button></div>}
+                    <button type="submit" className="button button-primary composer-submit" disabled={concluded || voiceState !== "idle" || !composer.trim()}>{concluded ? "Ended" : "Answer"}</button>
                   </div>
-                  <textarea ref={composerInput} disabled={concluded} value={composer} onChange={(event) => setComposer(event.target.value)} placeholder={concluded ? "This session has concluded. The complete record is ready to export." : hasSamDirection ? "Ask, challenge, judge, or redirect…" : "Greet Momo and Bobby, then set the first scientific direction…"} rows={8} />
+                  <textarea ref={composerInput} disabled={concluded || voiceState === "transcribing"} maxLength={24000} value={composer} onChange={(event) => setComposer(event.target.value)} placeholder={concluded ? "This session has concluded. The complete record is ready to export." : hasSamDirection ? "Ask, challenge, judge, or redirect…" : "Greet Momo and Bobby, then set the first scientific direction…"} rows={8} />
                 </form>
                 <div className="segment-controls">
                   <label>AI rounds <select value={automaticRoundVariation ? "auto" : String(rounds)} onChange={(event) => { const value = event.target.value; setAutomaticRoundVariation(value === "auto"); if (value !== "auto") setRounds(Number(value)); }} disabled={busy}><option value="auto">Auto · usually 2</option>{[2, 3, 4, 5].map((value) => <option key={value} value={value}>{value} fixed</option>)}</select></label>

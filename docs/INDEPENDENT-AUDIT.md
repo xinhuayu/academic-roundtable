@@ -7,7 +7,7 @@
 
 # Academic Roundtable: Independent Implementation Audit
 
-Audit date: 2026-07-21  
+Audit date: 2026-07-22  
 Scope: design, architecture, interface, functions/features, logic flow, security posture, maintainability, tests, and GitHub readiness
 
 ## Executive assessment
@@ -193,9 +193,9 @@ Before pushing to GitHub, scan the working tree and repository history for secre
 
 ## Verification evidence
 
-- Backend: **52 tests passed** with `.venv\Scripts\python.exe -m pytest backend\tests -q`. Coverage includes synthesis-only comprehensive Summary Digest export, explicit supporting digest files in the complete archive, digest-only ordinary source context, explicit original-source verification routing, selective flagship profile routing, source-sized verification budgets, exact one-session retention, post-close immutability, summary-job cancellation, latest one-page selection, and recap deduplication.
-- Covered regression cases also include first-token timeout recovery, immediate stalled-stream cancellation with partial-text retention, startup reconciliation, session-task cancellation, bounded context assembly, and preservation of `CLOSING` during interrupted stream cleanup.
-- Frontend: **3 Vitest tests passed**, followed by a successful TypeScript/Vite production build. A live read-only browser audit confirmed the unified conversation heading, highlighted Sam-floor indicator and composer, reachable controls, latest-message visibility at the bottom of the rolling transcript, updated source disclosure, selected Verification profile, and no console warnings or errors.
+- Backend: **70 tests passed** with `.venv\Scripts\python.exe -m pytest backend\tests -q`. Coverage includes ephemeral voice transcription, audio format/size/lifecycle guards, topic-guided provider requests, multi-round persistence of expanded long-Sam allowances, command-oriented recap detection, synthesis-only comprehensive Summary Digest export, explicit supporting digest files in the complete archive, digest-only ordinary source context, explicit original-source verification routing, selective flagship profile routing, exact one-session retention, post-close immutability, summary-job cancellation, latest one-page selection, and recap deduplication.
+- Covered regression cases also include voice-expanded first-token/stream-idle/total-turn deadlines, first-token timeout recovery, immediate stalled-stream cancellation with partial-text retention, startup reconciliation, session-task cancellation, bounded context assembly, and preservation of `CLOSING` during interrupted stream cleanup.
+- Frontend: **4 Vitest tests passed**, followed by a successful TypeScript/Vite production build. A local browser audit confirmed that Voice input, its privacy notice, the four composer controls, textarea, and Answer button fit within Sam's fixed panel without scrolling or console errors. The voice control now displays elapsed time without a duration ceiling and waits for Sam to stop. Microphone permission was not requested and no audio/provider call was made; the temporary audit session was purged afterward.
 - Independent API lifecycle smoke script (mocked providers) confirms session creation, Sam message routing, segment streaming, document digest jobs, recap triggering, closeout, learning-evaluation availability, and export paths in a clean temporary DB.
 - Live-provider smoke test remains intentionally separate because it depends on external model availability and API keys.
 

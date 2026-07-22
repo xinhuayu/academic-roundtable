@@ -20,9 +20,10 @@ class SessionCreate(BaseModel):
 
 
 class SamMessage(BaseModel):
-    content: str = Field(min_length=1, max_length=12000)
+    content: str = Field(min_length=1, max_length=24000)
     target: Literal["roundtable", "Momo", "Bobby", "both"] = "roundtable"
     continue_rounds: int | None = Field(default=None, ge=0, le=5)
+    input_method: Literal["text", "voice"] = "text"
 
 
 class SegmentRequest(BaseModel):

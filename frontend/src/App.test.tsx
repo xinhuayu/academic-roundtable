@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { buildDigestStatusMessages, FormattedMessageContent, NewSessionForm } from "./App";
+import { buildDigestStatusMessages, FormattedMessageContent, NewSessionForm, VoiceInputControl } from "./App";
 
 
 describe("FormattedMessageContent", () => {
@@ -48,5 +48,26 @@ describe("NewSessionForm", () => {
     expect(markup).toContain('type="file"');
     expect(markup).toContain("multiple");
     expect(markup).toContain("extracted sections are sent to the configured model server for digestion");
+  });
+});
+
+describe("VoiceInputControl", () => {
+  it("explains the private review-first voice workflow", () => {
+    const idle = renderToStaticMarkup(
+      <VoiceInputControl state="idle" busy={false} seconds={0} draftReady={false} disabled={false} onToggle={() => undefined} />,
+    );
+    const recording = renderToStaticMarkup(
+      <VoiceInputControl state="recording" busy={false} seconds={305} draftReady={false} disabled={false} onToggle={() => undefined} />,
+    );
+    const ready = renderToStaticMarkup(
+      <VoiceInputControl state="idle" busy={false} seconds={0} draftReady disabled={false} onToggle={() => undefined} />,
+    );
+
+    expect(idle).toContain("Record until you stop");
+    expect(idle).toContain("audio is sent to OpenAI and not saved");
+    expect(recording).toContain("Recording 5:05");
+    expect(recording).toContain("select Stop recording when finished");
+    expect(recording).toContain("Stop recording");
+    expect(ready).toContain("review and edit before Answer");
   });
 });

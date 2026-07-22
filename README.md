@@ -59,6 +59,7 @@ flowchart LR
 - Sources-only mode or labeled internal background knowledge
 - Conversation-first rolling interface with persistent host controls
 - Highlighted Sam composer whenever Sam has the floor
+- Optional Sam voice input during the human floor, or **Interrupt and speak** during an AI segment; recordings continue until Sam stops them, are transcribed with topic-aware light spelling/punctuation correction, and return to the composer for review and editing before submission
 - Highlighted top-right **Sam has the floor** indicator
 - Provider health and background-job progress
 - Temporary local System cards for active Topic Digest and Conversation Digest work; these disappear on completion and are never stored or exported
@@ -236,7 +237,7 @@ Optional live-provider smoke test (uses API capacity):
 .\.venv\Scripts\python.exe .\scripts\smoke_generation.py --participant Bobby
 ```
 
-The current deterministic backend suite contains 51 passing tests; the frontend suite contains 3 passing tests and the production build is verified. The built-in learning-quality workflow and optional developer comparison tools are documented in [docs/LEARNING-QUALITY-EVALUATION.md](docs/LEARNING-QUALITY-EVALUATION.md). See [docs/CRITICAL-REVIEW.md](docs/CRITICAL-REVIEW.md) for the prioritized agent-system review and [docs/INDEPENDENT-AUDIT.md](docs/INDEPENDENT-AUDIT.md) for the broader audit.
+The current deterministic backend suite contains 70 passing tests; the frontend suite contains 4 passing tests and the production build is verified. The built-in learning-quality workflow and optional developer comparison tools are documented in [docs/LEARNING-QUALITY-EVALUATION.md](docs/LEARNING-QUALITY-EVALUATION.md). See [docs/CRITICAL-REVIEW.md](docs/CRITICAL-REVIEW.md) for the prioritized agent-system review and [docs/INDEPENDENT-AUDIT.md](docs/INDEPENDENT-AUDIT.md) for the broader audit.
 
 ## Conversation memory
 
@@ -290,6 +291,7 @@ Runtime data, uploads, databases, environment files, logs, dependency directorie
 | `GET/POST` | `/api/sessions` | List or create the single retained session |
 | `GET/PATCH` | `/api/sessions/{id}` | Read or update session settings |
 | `POST` | `/api/sessions/{id}/messages` | Add Sam's message and determine the next action |
+| `POST` | `/api/sessions/{id}/voice-transcription` | Transcribe a temporary Sam recording into an editable topic-aware draft |
 | `POST` | `/api/sessions/{id}/segments` | Stream a bounded AI segment over SSE |
 | `POST` | `/api/sessions/{id}/interrupt` | Interrupt active generation |
 | `POST` | `/api/sessions/{id}/recap` | Request a conversation digest |
@@ -343,8 +345,14 @@ Before publishing the repository, run a secret scan over both the working tree a
 - FTS5 lexical retrieval only
 - No OCR for scanned image-only PDFs
 - English-pattern detection for recap and closing intents
-- No formal claim graph, scoring dashboard, voice mode, or autonomous web research
+- No formal claim graph, scoring dashboard, continuous/realtime voice conversation, or autonomous web research
 - No license selected yet; choose one before public distribution or outside contributions
+
+## Sam voice input
+
+Voice input uses the configured OpenAI transcription endpoint with `gpt-4o-mini-transcribe` by default. The browser has no recording-time cutoff: Sam can speak for three minutes, five minutes, or longer and stops the recording manually. The in-memory recording is uploaded only after Sam stops. The transcription prompt includes the roundtable topic, active question, and key academic terms so obvious terminology and spelling errors can be corrected without summarizing or strengthening Sam's claims. The returned text is never submitted automatically: Sam reviews and edits it in the normal composer, then selects **Answer**. A provider-compatible audio-size safeguard remains necessary for a single upload; if reached, the captured portion is stopped and transcribed rather than discarded.
+
+The recording is sent to OpenAI for transcription and is not written to the roundtable database, upload directory, transcript, exports, or archive. Only the edited text Sam submits becomes session history. Voice-derived or otherwise long Sam comments may contain up to 24,000 characters and receive 1.5× response-token room, 1.75× first-token/stream-idle/total-turn time, and a larger recent-turn context slot throughout the complete AI segment; visible AI turns remain governed by the concise conversation prompt. Natural-language recaps require an explicit conversational command, so topical phrases such as “statistical summary” do not divert the turn into recap generation.
 
 The prioritized next increments are in [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md). Repository preparation steps are in [docs/GITHUB-RELEASE-CHECKLIST.md](docs/GITHUB-RELEASE-CHECKLIST.md).
 

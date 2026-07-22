@@ -110,6 +110,14 @@ class Settings:
     research_live_timeout_multiplier: float = 2.0
     verification_live_token_multiplier: float = 2.0
     verification_live_timeout_multiplier: float = 2.5
+    voice_transcription_base_url: str = "https://api.openai.com/v1"
+    voice_transcription_model: str = "gpt-4o-mini-transcribe"
+    voice_transcription_api_key_env: str = "OPENAI_API_KEY"
+    voice_transcription_timeout: float = 480.0
+    voice_max_audio_bytes: int = 25 * 1024 * 1024
+    long_sam_input_token_multiplier: float = 1.5
+    long_sam_input_timeout_multiplier: float = 1.75
+    long_sam_input_threshold_chars: int = 3200
 
 
 def provider_from_env(name: str, default_model: str) -> ProviderConfig:
@@ -199,5 +207,27 @@ def get_settings() -> Settings:
         ),
         verification_live_timeout_multiplier=_bound_multiplier(
             env_float("VERIFICATION_LIVE_TIMEOUT_MULTIPLIER", 2.5), 1.0, 5.0
+        ),
+        voice_transcription_base_url=os.getenv(
+            "VOICE_TRANSCRIPTION_BASE_URL", "https://api.openai.com/v1"
+        ).rstrip("/"),
+        voice_transcription_model=os.getenv(
+            "VOICE_TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe"
+        ),
+        voice_transcription_api_key_env=os.getenv(
+            "VOICE_TRANSCRIPTION_API_KEY_ENV", "OPENAI_API_KEY"
+        ),
+        voice_transcription_timeout=env_float("VOICE_TRANSCRIPTION_TIMEOUT_SECONDS", 480.0),
+        voice_max_audio_bytes=max(
+            1024 * 1024, env_int("VOICE_MAX_AUDIO_BYTES", 25 * 1024 * 1024)
+        ),
+        long_sam_input_token_multiplier=_bound_multiplier(
+            env_float("LONG_SAM_INPUT_TOKEN_MULTIPLIER", 1.5), 1.0, 2.5
+        ),
+        long_sam_input_timeout_multiplier=_bound_multiplier(
+            env_float("LONG_SAM_INPUT_TIMEOUT_MULTIPLIER", 1.75), 1.0, 3.0
+        ),
+        long_sam_input_threshold_chars=max(
+            1000, env_int("LONG_SAM_INPUT_THRESHOLD_CHARS", 3200)
         ),
     )

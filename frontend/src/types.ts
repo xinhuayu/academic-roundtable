@@ -114,6 +114,14 @@ export interface DocumentDependencies {
   pypdf_version?: string | null;
 }
 
+export interface AppMetadata {
+  voice_input?: {
+    configured: boolean;
+    model: string;
+    max_audio_bytes: number;
+  };
+}
+
 export interface StreamEvent {
   type: string;
   speaker?: Speaker;
