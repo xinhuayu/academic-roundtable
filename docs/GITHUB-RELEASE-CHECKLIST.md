@@ -15,7 +15,7 @@
 - [ ] Confirm `.env.local` is ignored and absent from `git status` and `git ls-files`.
 - [ ] Scan the full candidate commit and history for secrets.
 - [ ] Confirm `data/`, uploads, exports, logs, dependencies, caches, and build artifacts are untracked.
-- [ ] Run **51 backend tests**, the frontend test suite, and the frontend production build from the clean copy.
+- [ ] Run **52 backend tests**, the frontend test suite, and the frontend production build from the clean copy.
 - [ ] Review README limitations and security warnings.
 - [ ] Configure private vulnerability reporting before inviting outside users.
 
@@ -29,7 +29,7 @@
 
 ## Latest prepared-archive verification (2026-07-21)
 
-- [x] 51 backend tests passed.
+- [x] 52 backend tests passed.
 - [x] Frontend Vitest suite passed (3 tests, including ephemeral digest-status messages and landing-page multi-source staging).
 - [x] Frontend production build passed.
 - [x] Candidate source files passed checks for common OpenAI, Google, and Anthropic key formats, private-key blocks, and developer-specific absolute paths.
@@ -45,6 +45,7 @@
 - [x] Closeout replaces the visible JSON download with a comprehensive Summary Digest; landing-page sources are staged before Start and queued immediately afterward; conversation-page uploads remain available.
 - [x] Momo's runtime critique skill checks Bobby's and Sam's assumptions, evidentiary support, scope, causal interpretation, and qualifications without defaulting to reflexive disagreement.
 - [x] Lifecycle regression coverage protects strict reset, post-close immutability, summary cancellation across both closeout jobs, latest-summary export selection, and recap-job deduplication.
+- [x] The closeout Summary Digest is synthesis-only; the complete archive retains explicit Topic, latest Conversation, digest-history, and processed-source JSON files.
 
 This verifies the prepared local archive only. A GitHub history scan remains required after repository initialization and before publication.
 

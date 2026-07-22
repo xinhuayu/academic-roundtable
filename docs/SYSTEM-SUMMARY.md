@@ -137,7 +137,7 @@ Each prompt section also has an explicit input ceiling. Oversized material is vi
 - Without sources, the Topic Digest develops after several substantive exchanges.
 - A Conversation Digest is scheduled every configured five or six completed rounds; Sam's interruptions do not reset that counter.
 - Natural-language requests such as “summarize so far” or “let's recap” create an immediate visible digest.
-- The final Summary Digest draws on the complete digest history plus the most recent substantive turns. Momo's dedicated comprehensive-summary skill preserves intellectual progression, attribution, source/model/inference provenance, methods, uncertainty, Sam's learning direction, and research priorities without reproducing the transcript.
+- The final Summary Digest draws on the complete digest history plus the most recent substantive turns. Momo's dedicated comprehensive-summary skill preserves intellectual progression, attribution, source/model/inference provenance, methods, uncertainty, Sam's learning direction, and research priorities without reproducing the transcript. Its closeout download contains only this synthesis; raw Topic, processed-source, current Conversation, and historical digest records are excluded and retained in the complete archive.
 - Source, topic, conversation, and final-summary tasks have larger output budgets than live dialogue. Final synthesis has a separate 6,000-token base allowance and inherits source/profile scaling and background-job deadlines.
 
 ## Lifecycle and logic flow
@@ -159,7 +159,7 @@ stateDiagram-v2
 
 `New roundtable` on the landing page now performs a fresh session-list check immediately before creating a new session; if any prior local sessions exist, the UI prompts for confirmation and only proceeds with `force_reset=true`.
 
-Closeout is coordinated with the active generation lock so interrupted text is persisted before the final summary snapshots history. Streaming cleanup cannot overwrite `CLOSING` or `CLOSED`. Sam may cancel summary work; the session then closes with its transcript and existing digests intact. At `CLOSED`, Sam may download the comprehensive Summary Digest, a separate one-page Momo-authored learning summary, the readable transcript, or the complete archive. Sam may save a learning evaluation included in every export. Downloading, reviewing, and evaluating are optional: when warned about unsaved data, Sam can select **No, start new roundtable** to purge the old session and its evaluation and proceed immediately.
+Closeout is coordinated with the active generation lock so interrupted text is persisted before the final summary snapshots history. Streaming cleanup cannot overwrite `CLOSING` or `CLOSED`. Sam may cancel summary work; the session then closes with its transcript and existing digests intact. At `CLOSED`, Sam may download the synthesis-only comprehensive Summary Digest, a separate one-page Momo-authored learning summary, the readable transcript, or the complete archive. The archive includes explicit JSON files for the Topic Digest, latest Conversation Digest, complete digest history, and processed-source digests. Sam may save a learning evaluation included in every export. Downloading, reviewing, and evaluating are optional: when warned about unsaved data, Sam can select **No, start new roundtable** to purge the old session and its evaluation and proceed immediately.
 
 ## Functions and features
 
@@ -181,7 +181,7 @@ Closeout is coordinated with the active generation lock so interrupted text is p
 - Provider health and background-job progress
 - Ephemeral, non-persistent System transcript cards for topic/conversation digestion
 - Blue closeout progress notices for final and one-page summary stages
-- Readable transcript, comprehensive Summary Digest, one-page summary, structured JSON API export, and complete ZIP archive after closure
+- Readable transcript, synthesis-only comprehensive Summary Digest, one-page summary, structured JSON API export, and complete ZIP archive with supporting digest records after closure
 - Built-in closeout learning evaluation with automated diagnostics, Sam's evidence-backed rubric, and export inclusion
 - Save/download controls precede the optional learning-evaluation action on closeout
 - Momo-authored one-page closeout summary generated with the finalization lock and downloadable independently
@@ -218,8 +218,8 @@ This is still a local MVP, not an internet-facing secure service. Authentication
 
 As of the latest verification run:
 
-- 51 backend tests pass.
-- The suite covers rounds, recent-history retention, mention routing, greeting exclusion, digest history and latest Summary Digest export, FTS locators, strict one-session purging, host-deferred continuation, recap-job deduplication, first-token timeout recovery, immediate stalled-stream cancellation with partial-text retention, restart reconciliation, session-task cancellation, bounded prompt context, post-close immutability, close/interrupt lifecycle safety, and cancellation of both final and one-page summary work.
+- 52 backend tests pass.
+- The suite covers rounds, recent-history retention, mention routing, greeting exclusion, synthesis-only Summary Digest export, explicit archive digest records, latest one-page selection, FTS locators, strict one-session purging, host-deferred continuation, recap-job deduplication, first-token timeout recovery, immediate stalled-stream cancellation with partial-text retention, restart reconciliation, session-task cancellation, bounded prompt context, post-close immutability, close/interrupt lifecycle safety, and cancellation of both final and one-page summary work.
 - All 3 frontend tests, TypeScript type-checking, and the production build pass. Frontend coverage includes provenance formatting, ephemeral digest cards, and landing-page multi-source staging.
 - Live provider checks remain optional because they consume external API capacity. The 2026-07-21 approved live audit confirmed:
   - Momo: `gpt-5.6-luna` (OpenAI Responses), configured and reachable.
@@ -243,6 +243,7 @@ As of the latest verification run:
 - Fixed `/api/documents/dependencies` return typing from fixed-`bool` to metadata-safe payload (`dict[str, bool | str | None]`) to avoid 500 validation errors.
 - Fixed lifecycle boundary cases: creation now requires explicit reset for any retained session; recap and source upload are read-only after closing; cancel-summary cannot close a live conversation; and cancellation marks both final-summary and one-page-summary jobs consistently.
 - Repeated recap requests now reuse an active Conversation Digest job, preventing duplicate model work. Closeout and direct one-page exports select the latest completed one-page digest.
+- Separated the closeout Summary Digest from supporting records: the digest download is synthesis-only, while the complete archive contains explicit Topic, latest Conversation, digest-history, and processed-source JSON files.
 - Clarified source privacy: managed files remain local, but extracted sections are sent to the configured model server for digestion; ordinary turns use only the processed digest unless Sam explicitly requests source verification.
 
 See [LEARNING-QUALITY-EVALUATION.md](LEARNING-QUALITY-EVALUATION.md) for the evaluation harness and pilot process, [CRITICAL-REVIEW.md](CRITICAL-REVIEW.md) for the prioritized agent-system review, [INDEPENDENT-AUDIT.md](INDEPENDENT-AUDIT.md) for the broader audit, and [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md) for the next agile increments.

@@ -77,7 +77,7 @@ The project uses short, testable increments. It does not add multi-user or cloud
 - Digests and periodic summaries below the conversation
 - Close-session page with highlighted blue final-summary and one-page-summary progress stages, comprehensive Summary Digest download, one-page summary download, summary cancellation, and digest-based fallback wrap-up
 - Save/download row before the optional **Evaluate learning** action
-- Momo-authored comprehensive Summary Digest using a dedicated critical-synthesis skill, plus a separate one-page learning summary (key concepts, main issues, strategies, research priorities), readable transcript, and ZIP archive downloads; structured JSON remains available through the API and inside the archive
+- Momo-authored synthesis-only comprehensive Summary Digest using a dedicated critical-synthesis skill, plus a separate one-page learning summary (key concepts, main issues, strategies, research priorities), readable transcript, and ZIP archive downloads; Topic, processed-source, latest Conversation, historical digest, and structured session JSON remain inside the archive
 - Guarded one-session retention, optional save/evaluation handoff, and safe one-choice purge before replacement
 
 ## Audit stabilization increment — complete

@@ -143,7 +143,7 @@ def render_session_markdown(view: dict[str, Any]) -> str:
 
 
 def render_summary_digest(view: dict[str, Any]) -> str:
-    """Render the complete retained learning synthesis without duplicating the transcript."""
+    """Render only the comprehensive learning synthesis, without raw supporting digests."""
     final_summary = next(
         (
             message["content"]
@@ -161,63 +161,11 @@ def render_summary_digest(view: dict[str, Any]) -> str:
         "## Comprehensive final synthesis",
         "",
         final_summary or (
-            "Final synthesis was cancelled or unavailable. The retained topic, source, "
-            "conversation, and periodic digests follow."
+            "Final synthesis was cancelled or unavailable. Download the complete archive "
+            "to retain the transcript and supporting digest records."
         ),
         "",
-        "## Topic Digest",
-        "",
-        "```json",
-        json.dumps(view.get("topic_digest") or {}, ensure_ascii=False, indent=2),
-        "```",
-        "",
-        "## Processed Source Digests",
-        "",
     ]
-    documents = view.get("documents") or []
-    if documents:
-        for document in documents:
-            source_digest = document.get("digest")
-            rendered_source_digest = (
-                source_digest
-                if isinstance(source_digest, str)
-                else json.dumps(source_digest, ensure_ascii=False, indent=2)
-                if source_digest
-                else "No completed source digest is available."
-            )
-            lines.extend([
-                f"### {document.get('filename', 'Source document')}",
-                "",
-                f"**Status:** {document.get('status', 'unknown')}",
-                "",
-                rendered_source_digest,
-                "",
-            ])
-    else:
-        lines.extend(["No source documents were supplied.", ""])
-    lines.extend([
-        "## Latest Conversation Digest",
-        "",
-        "```json",
-        json.dumps(view.get("conversation_digest") or {}, ensure_ascii=False, indent=2),
-        "```",
-        "",
-        "## Complete Digest History",
-        "",
-    ])
-    history = view.get("summary_history") or []
-    if history:
-        for index, digest in enumerate(history, start=1):
-            lines.extend([
-                f"### Digest {index}: {digest['kind']} (through round {digest['through_round']})",
-                "",
-                "```json",
-                json.dumps(digest.get("digest") or {}, ensure_ascii=False, indent=2),
-                "```",
-                "",
-            ])
-    else:
-        lines.extend(["No periodic or requested digests were completed.", ""])
     return "\n".join(lines)
 
 
@@ -363,6 +311,33 @@ async def export_session(session_id: str, format: str = "markdown"):
             archive.writestr(
                 "session.json",
                 json.dumps(view, ensure_ascii=False, indent=2),
+            )
+            archive.writestr(
+                "digests/topic-digest.json",
+                json.dumps(view.get("topic_digest") or {}, ensure_ascii=False, indent=2),
+            )
+            archive.writestr(
+                "digests/latest-conversation-digest.json",
+                json.dumps(view.get("conversation_digest") or {}, ensure_ascii=False, indent=2),
+            )
+            archive.writestr(
+                "digests/digest-history.json",
+                json.dumps(view.get("summary_history") or [], ensure_ascii=False, indent=2),
+            )
+            archive.writestr(
+                "digests/processed-source-digests.json",
+                json.dumps(
+                    [
+                        {
+                            "filename": document.get("filename"),
+                            "status": document.get("status"),
+                            "digest": document.get("digest"),
+                        }
+                        for document in (view.get("documents") or [])
+                    ],
+                    ensure_ascii=False,
+                    indent=2,
+                ),
             )
             upload_root = settings.uploads_dir.resolve()
             for index, document in enumerate(database.list_documents(session_id), start=1):

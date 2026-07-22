@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import io
+import json
+import zipfile
+
 from fastapi.testclient import TestClient
 
 from app import main as main_module
@@ -63,7 +67,7 @@ def test_markdown_export_includes_one_page_summary_block_and_missing_summary_blo
     assert "Actionable learning" not in latest.text
 
 
-def test_summary_digest_export_combines_final_source_and_digest_history(tmp_path, monkeypatch) -> None:
+def test_summary_digest_export_contains_only_the_comprehensive_synthesis(tmp_path, monkeypatch) -> None:
     db = Database(tmp_path / "summary-digest-export.sqlite3")
     db.initialize()
     session = db.create_session("Trajectory evidence", "Retain the learning progression", 2, False, False)
@@ -97,8 +101,67 @@ def test_summary_digest_export_combines_final_source_and_digest_history(tmp_path
     assert "# Summary Digest: Trajectory evidence" in response.text
     assert "## Comprehensive final synthesis" in response.text
     assert "descriptive model assignments" in response.text
-    assert "## Complete Digest History" in response.text
-    assert "Are the reported groups causal types?" in response.text
+    assert "## Topic Digest" not in response.text
+    assert "## Processed Source Digests" not in response.text
+    assert "## Latest Conversation Digest" not in response.text
+    assert "## Complete Digest History" not in response.text
+    assert "Are the reported groups causal types?" not in response.text
+
+
+def test_complete_archive_keeps_supporting_digest_records(tmp_path, monkeypatch) -> None:
+    db = Database(tmp_path / "archive-digest-records.sqlite3")
+    db.initialize()
+    session = db.create_session("Archive evidence", "Keep supporting records", 2, False, False)
+    db.update_session(
+        session["id"],
+        topic_digest={"scope": "Topic evidence"},
+        conversation_digest={"active_question": "Current question"},
+    )
+    db.add_summary_digest(
+        session["id"],
+        "periodic",
+        2,
+        {"active_question": "Earlier question"},
+    )
+    document = db.add_document(
+        session["id"],
+        "paper.pdf",
+        str(tmp_path / "missing-paper.pdf"),
+        "application/pdf",
+    )
+    db.update_document(
+        document["id"],
+        status="ready",
+        digest=json.dumps({"finding": "Processed source evidence"}),
+    )
+    db.add_message(
+        session["id"],
+        "System",
+        "## Executive synthesis\nA clean final synthesis.",
+        metadata={"kind": "final_summary"},
+    )
+    db.update_session(session["id"], state="CLOSED")
+
+    client = make_test_client(db, monkeypatch)
+    response = client.get(f"/api/sessions/{session['id']}/export?format=archive")
+
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert {
+            "digests/topic-digest.json",
+            "digests/latest-conversation-digest.json",
+            "digests/digest-history.json",
+            "digests/processed-source-digests.json",
+        }.issubset(archive.namelist())
+        assert json.loads(archive.read("digests/topic-digest.json"))["scope"] == "Topic evidence"
+        assert json.loads(archive.read("digests/latest-conversation-digest.json"))["active_question"] == "Current question"
+        assert json.loads(archive.read("digests/digest-history.json"))[0]["digest"]["active_question"] == "Earlier question"
+        assert json.loads(archive.read("digests/processed-source-digests.json"))[0]["digest"]["finding"] == "Processed source evidence"
+        summary_digest = archive.read("summary-digest.md").decode("utf-8")
+        assert "A clean final synthesis" in summary_digest
+        assert "Topic evidence" not in summary_digest
+        assert "Earlier question" not in summary_digest
+        assert "Processed source evidence" not in summary_digest
 
 
 def test_create_session_force_reset_clears_existing_active_sessions(tmp_path, monkeypatch) -> None:
