@@ -243,6 +243,34 @@ pnpm dev
 
 The Vite server proxies `/api` to FastAPI.
 
+## Restarting or force-closing the local server
+
+If the page stops responding, the API appears stuck, or a new server cannot bind to port `8765`, restart Uvicorn from the project root. A server restart does **not** purge the local session, transcript, digests, source records, or uploaded files. After the server is back, reload the page; the saved roundtable will be restored and Sam can continue from the last persisted turn. A provider call that was actively streaming when the process stopped is not resumed byte-for-byte, but its saved history remains intact and the session is reconciled to a safe state.
+
+Try a normal `Ctrl+C` in the server terminal first. If the process is unresponsive, force-close only the process listening on port `8765`:
+
+```powershell
+$listener = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue
+$listener.OwningProcess | Sort-Object -Unique | ForEach-Object {
+    Stop-Process -Id $_ -Force
+}
+```
+
+Then start the server again:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+
+If PowerShell cannot find the listener, use Command Prompt:
+
+```cmd
+netstat -ano | findstr :8765
+taskkill /PID <PID> /F
+```
+
+Replace `<PID>` with the process ID shown by `netstat`. Do not terminate every `python.exe` process, because other applications may be using Python. Restarting is different from **Start a new roundtable**: only the latter intentionally purges the retained session after Sam confirms.
+
 ## Verification
 
 Backend tests:
