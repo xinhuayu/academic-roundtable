@@ -60,6 +60,24 @@ The audit also confirmed dependency metadata and diagnostics were hardened:
 
 Performance disposition: live discussion latency and output sizes are appropriate for the current concise-turn design. Source digestion is acceptably asynchronous for a 27-passage academic PDF. Requested recap latency is within the configured 900-second background-job ceiling but should be monitored in further trials; it is not currently evidence of timeout, truncation, or retry failure.
 
+### Live reasoning-profile switch simulation (2026-07-21)
+
+I then used `scripts/simulate_reasoning_profiles.py` against the same running server and the same cognitive-trajectories PDF. The reusable script creates or reuses a source-digested session, changes `conversation_profile` through the public session API, sends a source-grounded methodological prompt, streams a fixed two-round segment, and records the actual model, reasoning effort, source-verification flag, first-delta latency, total elapsed time, output size, and provider errors. It intentionally leaves the session open for inspection.
+
+The source pipeline completed before the comparison: the 792,401-byte PDF produced a 20,102-character document digest in about 64.0 seconds and a 5,915-character Topic Digest in about 7.8 seconds. Ordinary Fast and Research turns used the processed source digest rather than raw PDF passages. Verification mode reopened original source passages and correctly cited page 4.
+
+| Profile | Actual Momo route | Actual Bobby route | First visible text | Two-round segment | Per-message output | Errors |
+|---|---|---|---:|---:|---:|---:|
+| Fast | `gpt-5.6-luna`, low | `gemini-3.1-flash-lite`, low | 1.787 s | 16.710 s | 101-120 words | 0 |
+| Research | `gpt-5.6-sol`, medium | `gemini-3.1-pro-preview`, medium | 6.057 s | 48.978 s | 104-119 words | 0 |
+| Verification | `gpt-5.6-sol`, high | `gemini-3.1-pro-preview`, high | 15.280 s | 81.126 s | 102-115 words | 0 |
+
+Research was 2.93 times slower than Fast for the complete segment but materially improved the methodological discussion: it raised trajectory-model uncertainty, informative attrition, time-varying confounding, joint cognition-survival models, and the need for a well-defined causal estimand. Verification was 4.85 times slower than Fast and 1.66 times slower than Research, but it checked the paper's five-group BIC selection and highest-posterior assignment against the original PDF, distinguished model fit from proof of biological classes, and challenged an inference that exceeded the reported method.
+
+All three profiles kept visible contributions concise despite their larger internal allowances. SSE traffic was approximately 29 KB per profile, every expected AI message completed, and no model response was truncated, interrupted, or handed invisibly to the other participant. One automatic conversation-digest job overlapped part of the comparison window, so these figures are operational measurements rather than a controlled provider benchmark. They nevertheless demonstrate that profile switching works without a server restart and that the intended quality-latency tradeoff is observable end to end.
+
+Operational recommendation: keep Fast as the default, use Research for mathematically or statistically demanding exploration, and reserve Verification for disputed claims or explicit requests to inspect the original document.
+
 ## Design audit
 
 ### Strengths
@@ -68,6 +86,7 @@ Performance disposition: live discussion latency and output sizes are appropriat
 - Human authority is encoded in both controls and lifecycle, not merely described in prompts.
 - Concision is a design constraint, which protects readability and latency.
 - Momo and Bobby receive complementary but non-hierarchical roles.
+- Momo's always-carried critique skill explicitly audits Bobby's and Sam's substantive claims for necessary assumptions, evidentiary sufficiency, scope, causal interpretation, and required qualification while preserving the defensible core and naming one decisive test.
 - Digests and raw recent turns balance long-session focus with fidelity.
 - Source evidence and internal model knowledge can coexist under an explicit provenance policy.
 
@@ -104,6 +123,7 @@ These are acceptable MVP boundaries when stated honestly.
 - Sam's composer remains separate and reachable for interruption.
 - Sam's composer receives a restrained active-floor highlight when the AIs are waiting for the host.
 - The top-right Sam-floor indicator receives the same visible active-state emphasis.
+- Explicit AI LLM mode buttons are available on both the landing page and conversation header, making Fast, Research, and Verification choices visible for each next segment.
 - Topic/conversation digestion is visible through ephemeral System transcript cards that never enter persistence, model context, summaries, or exports.
 - Participant-name highlighting improves conversational scanning.
 - Background knowledge is visually separated from the core response.
@@ -132,7 +152,7 @@ The following core functions are present and connected end-to-end:
 - Digest-only grounding during ordinary rounds, with raw passage retrieval reserved for Sam's explicit original-source verification requests
 - Recent-round and digest context assembly
 - Upload, extraction, indexing, retrieval, provider health, and job status
-- Immediate End, cancellable final summary, Markdown/JSON/ZIP export, and confirmed new-session purge
+- Immediate End, cancellable final and one-page summary work, readable transcript/Summary Digest/one-page/ZIP export, and confirmed new-session purge
 
 The earlier documentation overstated several capabilities. Automatic job resumption, safe retries, circuit breakers, production metrics, formal claim graphs, and embedding retrieval are **not implemented** and are now recorded as deferred work.
 
@@ -141,10 +161,14 @@ The earlier documentation overstated several capabilities. Automatic job resumpt
 ### High-priority findings resolved
 
 1. **Closing state could be overwritten by streaming cleanup.** A close request can interrupt an active segment. The segment's unconditional cleanup previously restored `HUMAN_FLOOR`, racing with `CLOSING` or `CLOSED`. Cleanup now preserves terminal lifecycle states, and final synthesis waits for the session lock so partial text is saved first.
-2. **New-session retention was enforced mainly by the interface.** A direct API call could replace an active session. The API now returns `409 Conflict` when any prior session remains non-closed unless `force_reset=true` is used on creation.
+2. **New-session retention was enforced mainly by the interface.** A direct API call could create alongside a retained session. The API now returns `409 Conflict` whenever any prior session exists unless `force_reset=true` is used on creation; this includes closed sessions so the one-session invariant is exact.
 3. **Internal upload paths were exposed.** Session, upload, document, and JSON views could reveal managed filesystem paths. Public document serialization now removes `stored_path`; archive creation uses internal records only inside the server.
 4. **First-token timeout was configured but not enforced by orchestration.** The service now applies the provider's first-token deadline before continuing the stream and returns control to Sam on failure.
 5. **Source digest type handling could crash segment context assembly.** The source-context assembler assumed `documents.digest` was always a string and called `.strip()` directly, but parsed JSON payloads are stored as objects. It now normalizes non-string digests with `json.dumps(...)`, preventing 500 errors during live streams when documents are pre-digested.
+6. **Summary cancellation crossed lifecycle boundaries.** The cancel route could close an active conversation with no closeout job, and cancelling while the one-page stage ran could leave that job stuck. Cancellation is now rejected outside `CLOSING`, idempotent after `CLOSED`, and consistently marks both final-summary and one-page-summary jobs cancelled.
+7. **Closed sessions still accepted recap and upload mutations.** Both routes now return `409 Conflict` once closeout begins, preserving the downloadable final record.
+8. **One-page export selection was stale.** When multiple one-page digests existed, direct and Markdown exports could choose the oldest. Both now select the latest completed one-page digest.
+9. **Repeated recap requests could launch concurrent digest calls.** An active Conversation Digest job is now reused and recap controls are disabled while it runs, preventing duplicate provider work.
 
 ### Medium-priority findings resolved
 
@@ -169,11 +193,13 @@ Before pushing to GitHub, scan the working tree and repository history for secre
 
 ## Verification evidence
 
-- Backend: **46 tests passed** with `PYTHONPATH=backend .venv\Scripts\python.exe -m pytest backend\tests`. Coverage includes digest-only ordinary source context, explicit original-source verification routing, and source-sized verification budgets in addition to the earlier reliability cases.
-- Covered regression cases include first-token timeout recovery, immediate stalled-stream cancellation with partial-text retention, startup reconciliation, session-task cancellation, bounded context assembly, and preservation of `CLOSING` during interrupted stream cleanup.
-- Frontend: `npm test` and production build remain required verification gates whenever dependencies or UI code change.
+- Backend: **51 tests passed** with `.venv\Scripts\python.exe -m pytest backend\tests -q`. Coverage includes comprehensive Summary Digest export, digest-only ordinary source context, explicit original-source verification routing, selective flagship profile routing, source-sized verification budgets, exact one-session retention, post-close immutability, summary-job cancellation, latest one-page selection, and recap deduplication.
+- Covered regression cases also include first-token timeout recovery, immediate stalled-stream cancellation with partial-text retention, startup reconciliation, session-task cancellation, bounded context assembly, and preservation of `CLOSING` during interrupted stream cleanup.
+- Frontend: **3 Vitest tests passed**, followed by a successful TypeScript/Vite production build. A live read-only browser audit confirmed the unified conversation heading, highlighted Sam-floor indicator and composer, reachable controls, latest-message visibility at the bottom of the rolling transcript, updated source disclosure, selected Verification profile, and no console warnings or errors.
 - Independent API lifecycle smoke script (mocked providers) confirms session creation, Sam message routing, segment streaming, document digest jobs, recap triggering, closeout, learning-evaluation availability, and export paths in a clean temporary DB.
 - Live-provider smoke test remains intentionally separate because it depends on external model availability and API keys.
+
+The post-restart live health audit reported Momo (`gpt-5.6-luna`, OpenAI Responses) and Bobby (`gemini-3.1-flash-lite`, Google-compatible Chat Completions) configured and reachable. No paid generation was invoked during this audit, and the retained 11-round user session was not mutated.
 
 ## GitHub readiness checklist
 

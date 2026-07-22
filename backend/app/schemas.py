@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 
 Participant = Literal["Sam", "Momo", "Bobby", "System"]
+ConversationProfile = Literal["fast", "research", "verification"]
 
 
 class SessionCreate(BaseModel):
@@ -14,6 +15,7 @@ class SessionCreate(BaseModel):
     rounds_per_segment: int = Field(default=2, ge=2, le=5)
     sources_only: bool = False
     periodic_summary: bool = False
+    conversation_profile: ConversationProfile = "fast"
     force_reset: bool = False
 
 
@@ -38,6 +40,7 @@ class SessionSettingsUpdate(BaseModel):
     rounds_per_segment: int | None = Field(default=None, ge=2, le=5)
     sources_only: bool | None = None
     periodic_summary: bool | None = None
+    conversation_profile: ConversationProfile | None = None
 
 
 class LearningRating(BaseModel):

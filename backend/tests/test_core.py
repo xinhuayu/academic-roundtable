@@ -93,6 +93,7 @@ def test_chat_completions_forwards_task_reasoning_effort(monkeypatch) -> None:
                 messages=[{"role": "user", "content": "Synthesize"}],
                 max_output_tokens=4000,
                 reasoning_effort="medium",
+                model="gemini-3.1-pro-preview",
             )
             return await adapter.generate(request)
         finally:
@@ -101,6 +102,7 @@ def test_chat_completions_forwards_task_reasoning_effort(monkeypatch) -> None:
     assert asyncio.run(scenario()) == "Ready"
     assert captured["reasoning_effort"] == "medium"
     assert captured["max_tokens"] == 4000
+    assert captured["model"] == "gemini-3.1-pro-preview"
 
 
 def test_chat_completion_length_finish_is_not_silent_success(monkeypatch) -> None:
@@ -228,10 +230,44 @@ def test_momo_digest_and_participant_budget_defaults(monkeypatch) -> None:
     assert settings.bobby_live_max_output_tokens == 1400
 
 
+def test_research_profile_selects_flagship_models_and_expanded_budget(tmp_path: Path) -> None:
+    db = make_db(tmp_path)
+    session = db.create_session(
+        "Statistical mediation", "Understand identification", 2, False, False, "research"
+    )
+    provider = ProviderConfig(
+        participant="Momo", base_url="https://example.invalid/v1", model="fast-model",
+        api_style="responses", api_key_env="FAKE_KEY", reasoning_effort="low",
+    )
+    settings = Settings(
+        project_root=tmp_path, data_dir=tmp_path, uploads_dir=tmp_path / "uploads",
+        db_path=tmp_path / "test.sqlite3", host="127.0.0.1", port=8765,
+        digest_provider="momo", digest_interval=6, recent_round_count=5,
+        host_checkpoint_interval=3, live_max_output_tokens=350,
+        conversation_digest_max_output_tokens=2000, topic_digest_max_output_tokens=3000,
+        source_digest_max_output_tokens=4000, momo=provider, bobby=provider,
+    )
+    service = RoundtableService(settings, db, FakeRegistry())
+    momo_request = service.build_context(db.get_session(session["id"]), "Momo", 0)
+    bobby_request = service.build_context(db.get_session(session["id"]), "Bobby", 1)
+    assert momo_request.model == "gpt-5.6-sol"
+    assert bobby_request.model == "gemini-3.1-pro-preview"
+    assert momo_request.reasoning_effort == "medium"
+    assert bobby_request.reasoning_effort == "medium"
+    assert momo_request.max_output_tokens == 1600
+    assert bobby_request.max_output_tokens == 2800
+    assert momo_request.stream_idle_timeout == 90
+
+
 def test_academic_roles_require_depth_and_distinct_critical_angles() -> None:
     assert "Answer Sam's actual question" in ACADEMIC_CONVERSATION_SKILL
     assert "one level deeper" in ACADEMIC_CONVERSATION_SKILL
-    assert "Stress-test Bobby's and Sam's claims" in PERSONAS["Momo"]
+    assert "Stress-test Bobby's and Sam's substantive claims" in PERSONAS["Momo"]
+    momo_skill = RoundtableService._load_momo_skill()
+    assert "especially when responding to Bobby or Sam" in momo_skill
+    assert "what must be true for that claim to hold" in momo_skill
+    assert "established, plausible, underdetermined, or contradicted" in momo_skill
+    assert "Preserve the defensible core rather than disagreeing reflexively" in momo_skill
     assert "case developer" in PERSONAS["Bobby"]
 
 
@@ -653,15 +689,20 @@ def test_final_summary_can_be_cancelled_without_losing_session_record(tmp_path: 
             await asyncio.Event().wait()
             return "unreachable"
 
-        registry.items["Bobby"].generate = blocked_generate
+        # Momo always owns the comprehensive final Summary Digest, independent
+        # of the provider selected for routine periodic digests.
+        registry.items["Momo"].generate = blocked_generate
         job = service.request_final_summary(session["id"])
+        one_page_job = db.create_job(session["id"], "one_page_summary", {})
+        db.update_job(one_page_job["id"], status="running", detail="Writing one-page summary")
         await started.wait()
         assert db.get_session(session["id"])["state"] == "CLOSING"
         assert await service.cancel_final_summary(session["id"]) is True
-        return job
+        return job, one_page_job
 
-    job = asyncio.run(scenario())
+    job, one_page_job = asyncio.run(scenario())
     assert db.get_job(job["id"])["status"] == "cancelled"
+    assert db.get_job(one_page_job["id"])["status"] == "cancelled"
     assert db.get_session(session["id"])["state"] == "CLOSED"
     assert [message["content"] for message in db.list_messages(session["id"])] == [
         "Let us stop here."
@@ -797,8 +838,10 @@ def test_live_context_is_bounded_and_marks_clipped_content(tmp_path: Path) -> No
     assert len(context) < 60000
     assert request.max_output_tokens == 1200
     assert bobby_request.max_output_tokens == 2100
-    assert verification_request.max_output_tokens == 1800
-    assert bobby_verification_request.max_output_tokens == 3150
+    assert verification_request.max_output_tokens == 2400
+    assert bobby_verification_request.max_output_tokens == 4200
+    assert verification_request.reasoning_effort == "high"
+    assert verification_request.model == "gpt-5.6-sol"
 
 
 @pytest.mark.parametrize(
@@ -871,3 +914,17 @@ def test_interrupt_cancels_stalled_stream_and_preserves_partial_text(tmp_path: P
     assert messages[-1]["content"] == "A useful partial claim"
     assert messages[-1]["status"] == "interrupted"
     assert db.get_session(session["id"])["state"] == "HUMAN_FLOOR"
+
+
+def test_recap_request_reuses_an_active_digest_job(tmp_path: Path) -> None:
+    db = make_db(tmp_path)
+    session = db.create_session("Recap", "Avoid duplicate model work", 2, False, False)
+    active = db.create_job(session["id"], "conversation_digest", {"visible": False})
+    service = object.__new__(RoundtableService)
+    service.db = db
+
+    returned = service.request_recap(session["id"], focus="methods", periodic=True)
+
+    assert returned["id"] == active["id"]
+    assert len([job for job in db.list_jobs(session["id"]) if job["kind"] == "conversation_digest"]) == 1
+    assert db.get_session(session["id"])["periodic_summary"] is True

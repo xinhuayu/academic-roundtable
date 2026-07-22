@@ -85,6 +85,7 @@ class Settings:
     source_digest_max_output_tokens: int
     momo: ProviderConfig
     bobby: ProviderConfig
+    final_summary_max_output_tokens: int = 6000
     digest_section_timeout: float = 300.0
     digest_job_timeout: float = 900.0
     momo_live_max_output_tokens: int = 800
@@ -95,6 +96,20 @@ class Settings:
     source_multi_doc_token_multiplier: float = 2.0
     source_single_doc_timeout_multiplier: float = 1.5
     source_multi_doc_timeout_multiplier: float = 2.0
+    # Research profiles are deliberately separate from the provider defaults so
+    # a session can opt into deeper models without changing the fast baseline.
+    research_momo_model: str = "gpt-5.6-sol"
+    research_bobby_model: str = "gemini-3.1-pro-preview"
+    research_momo_reasoning_effort: str = "medium"
+    research_bobby_reasoning_effort: str = "medium"
+    verification_momo_model: str = "gpt-5.6-sol"
+    verification_bobby_model: str = "gemini-3.1-pro-preview"
+    verification_momo_reasoning_effort: str = "high"
+    verification_bobby_reasoning_effort: str = "high"
+    research_live_token_multiplier: float = 2.0
+    research_live_timeout_multiplier: float = 2.0
+    verification_live_token_multiplier: float = 2.0
+    verification_live_timeout_multiplier: float = 2.5
 
 
 def provider_from_env(name: str, default_model: str) -> ProviderConfig:
@@ -134,6 +149,9 @@ def get_settings() -> Settings:
         conversation_digest_max_output_tokens=max(
             2000, env_int("CONVERSATION_DIGEST_MAX_OUTPUT_TOKENS", 4000)
         ),
+        final_summary_max_output_tokens=max(
+            3000, env_int("FINAL_SUMMARY_MAX_OUTPUT_TOKENS", 6000)
+        ),
         topic_digest_max_output_tokens=max(
             3000, env_int("TOPIC_DIGEST_MAX_OUTPUT_TOKENS", 6000)
         ),
@@ -161,5 +179,25 @@ def get_settings() -> Settings:
         ),
         bobby_live_max_output_tokens=max(
             250, env_int("BOBBY_LIVE_MAX_OUTPUT_TOKENS", 1400)
+        ),
+        research_momo_model=os.getenv("RESEARCH_MOMO_MODEL", "gpt-5.6-sol"),
+        research_bobby_model=os.getenv("RESEARCH_BOBBY_MODEL", "gemini-3.1-pro-preview"),
+        research_momo_reasoning_effort=os.getenv("RESEARCH_MOMO_REASONING_EFFORT", "medium"),
+        research_bobby_reasoning_effort=os.getenv("RESEARCH_BOBBY_REASONING_EFFORT", "medium"),
+        verification_momo_model=os.getenv("VERIFICATION_MOMO_MODEL", "gpt-5.6-sol"),
+        verification_bobby_model=os.getenv("VERIFICATION_BOBBY_MODEL", "gemini-3.1-pro-preview"),
+        verification_momo_reasoning_effort=os.getenv("VERIFICATION_MOMO_REASONING_EFFORT", "high"),
+        verification_bobby_reasoning_effort=os.getenv("VERIFICATION_BOBBY_REASONING_EFFORT", "high"),
+        research_live_token_multiplier=_bound_multiplier(
+            env_float("RESEARCH_LIVE_TOKEN_MULTIPLIER", 2.0), 1.0, 3.0
+        ),
+        research_live_timeout_multiplier=_bound_multiplier(
+            env_float("RESEARCH_LIVE_TIMEOUT_MULTIPLIER", 2.0), 1.0, 4.0
+        ),
+        verification_live_token_multiplier=_bound_multiplier(
+            env_float("VERIFICATION_LIVE_TOKEN_MULTIPLIER", 2.0), 1.0, 3.0
+        ),
+        verification_live_timeout_multiplier=_bound_multiplier(
+            env_float("VERIFICATION_LIVE_TIMEOUT_MULTIPLIER", 2.5), 1.0, 5.0
         ),
     )

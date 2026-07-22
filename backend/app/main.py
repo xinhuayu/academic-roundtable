@@ -86,7 +86,7 @@ def sse(data: dict[str, Any]) -> str:
 
 def render_session_markdown(view: dict[str, Any]) -> str:
     one_page_summary = next(
-        (digest["digest"].get("content") for digest in view.get("summary_history", [])
+        (digest["digest"].get("content") for digest in reversed(view.get("summary_history", []))
          if digest.get("kind") == "one_page" and isinstance(digest.get("digest"), dict)),
         None,
     )
@@ -142,6 +142,85 @@ def render_session_markdown(view: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def render_summary_digest(view: dict[str, Any]) -> str:
+    """Render the complete retained learning synthesis without duplicating the transcript."""
+    final_summary = next(
+        (
+            message["content"]
+            for message in reversed(view.get("messages", []))
+            if (message.get("metadata") or {}).get("kind") == "final_summary"
+        ),
+        None,
+    )
+    lines = [
+        f"# Summary Digest: {view['topic']}",
+        "",
+        f"**Learning goal:** {view['learning_goal']}",
+        f"**Completed rounds:** {view['completed_rounds']}",
+        "",
+        "## Comprehensive final synthesis",
+        "",
+        final_summary or (
+            "Final synthesis was cancelled or unavailable. The retained topic, source, "
+            "conversation, and periodic digests follow."
+        ),
+        "",
+        "## Topic Digest",
+        "",
+        "```json",
+        json.dumps(view.get("topic_digest") or {}, ensure_ascii=False, indent=2),
+        "```",
+        "",
+        "## Processed Source Digests",
+        "",
+    ]
+    documents = view.get("documents") or []
+    if documents:
+        for document in documents:
+            source_digest = document.get("digest")
+            rendered_source_digest = (
+                source_digest
+                if isinstance(source_digest, str)
+                else json.dumps(source_digest, ensure_ascii=False, indent=2)
+                if source_digest
+                else "No completed source digest is available."
+            )
+            lines.extend([
+                f"### {document.get('filename', 'Source document')}",
+                "",
+                f"**Status:** {document.get('status', 'unknown')}",
+                "",
+                rendered_source_digest,
+                "",
+            ])
+    else:
+        lines.extend(["No source documents were supplied.", ""])
+    lines.extend([
+        "## Latest Conversation Digest",
+        "",
+        "```json",
+        json.dumps(view.get("conversation_digest") or {}, ensure_ascii=False, indent=2),
+        "```",
+        "",
+        "## Complete Digest History",
+        "",
+    ])
+    history = view.get("summary_history") or []
+    if history:
+        for index, digest in enumerate(history, start=1):
+            lines.extend([
+                f"### Digest {index}: {digest['kind']} (through round {digest['through_round']})",
+                "",
+                "```json",
+                json.dumps(digest.get("digest") or {}, ensure_ascii=False, indent=2),
+                "```",
+                "",
+            ])
+    else:
+        lines.extend(["No periodic or requested digests were completed.", ""])
+    return "\n".join(lines)
+
+
 def remove_managed_uploads(paths: list[str]) -> None:
     upload_root = settings.uploads_dir.resolve()
     for raw_path in paths:
@@ -174,7 +253,9 @@ async def meta() -> dict[str, Any]:
         "digest_interval": settings.digest_interval,
         "recent_round_count": settings.recent_round_count,
         "supported_uploads": ["pdf", "txt", "md"],
+        "export_formats": ["archive", "markdown", "summary_digest", "one_page_summary", "json"],
         "pdf_dependencies": extract_dependency_health(),
+        "conversation_profiles": service.profile_metadata(),
     }
 
 
@@ -196,13 +277,12 @@ async def list_sessions() -> list[dict[str, Any]]:
 @app.post("/api/sessions", status_code=201)
 async def create_session(payload: SessionCreate) -> dict[str, Any]:
     previous_sessions = database.list_sessions()
-    has_unclosed_session = any(session["state"] != "CLOSED" for session in previous_sessions)
-    if has_unclosed_session and not payload.force_reset:
+    if previous_sessions and not payload.force_reset:
         raise HTTPException(
             status_code=409,
             detail=(
-                "An active session exists. Start this roundtable with force_reset=true to purge old sessions, "
-                "or close the current session first."
+                "A prior local session exists. Start this roundtable with force_reset=true to purge its "
+                "transcript, summaries, evaluation, and uploads before creating the new session."
             ),
         )
     if payload.force_reset:
@@ -213,6 +293,7 @@ async def create_session(payload: SessionCreate) -> dict[str, Any]:
         rounds_per_segment=payload.rounds_per_segment,
         sources_only=payload.sources_only,
         periodic_summary=payload.periodic_summary,
+        conversation_profile=payload.conversation_profile,
     )
     database.add_message(
         session["id"],
@@ -238,7 +319,7 @@ async def get_session(session_id: str) -> dict[str, Any]:
 async def export_session(session_id: str, format: str = "markdown"):
     view = session_view(session_id)
     one_page_summary = next(
-        (digest["digest"].get("content") for digest in view.get("summary_history", [])
+        (digest["digest"].get("content") for digest in reversed(view.get("summary_history", []))
          if digest.get("kind") == "one_page" and isinstance(digest.get("digest"), dict)),
         None,
     )
@@ -263,11 +344,22 @@ async def export_session(session_id: str, format: str = "markdown"):
             media_type="text/markdown; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="roundtable-{session_id}-one-page-summary.md"'},
         )
+    if format == "summary_digest":
+        return Response(
+            render_summary_digest(view),
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="roundtable-{session_id}-summary-digest.md"'
+                )
+            },
+        )
     markdown = render_session_markdown(view)
     if format == "archive":
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("session.md", markdown)
+            archive.writestr("summary-digest.md", render_summary_digest(view))
             archive.writestr(
                 "session.json",
                 json.dumps(view, ensure_ascii=False, indent=2),
@@ -289,7 +381,12 @@ async def export_session(session_id: str, format: str = "markdown"):
             headers={"Content-Disposition": f'attachment; filename="roundtable-{session_id}.zip"'},
         )
     if format != "markdown":
-        raise HTTPException(status_code=400, detail="Export format must be markdown, json, or archive")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Export format must be markdown, summary_digest, one_page_summary, json, or archive"
+            ),
+        )
     return Response(
         markdown,
         media_type="text/markdown; charset=utf-8",
@@ -440,7 +537,11 @@ async def close_session(session_id: str) -> dict[str, Any]:
 
 @app.post("/api/sessions/{session_id}/final-summary/cancel")
 async def cancel_final_summary(session_id: str) -> dict[str, Any]:
-    require_session(session_id)
+    session = require_session(session_id)
+    if session["state"] == "CLOSED":
+        return session_view(session_id)
+    if session["state"] != "CLOSING":
+        raise HTTPException(status_code=409, detail="No final summary is currently running")
     await service.cancel_final_summary(session_id)
     return session_view(session_id)
 
@@ -499,14 +600,18 @@ async def interrupt(session_id: str) -> dict[str, Any]:
 
 @app.post("/api/sessions/{session_id}/recap", status_code=202)
 async def recap(session_id: str, payload: RecapRequest) -> dict[str, Any]:
-    require_session(session_id)
+    session = require_session(session_id)
+    if session["state"] in {"CLOSING", "CLOSED"}:
+        raise HTTPException(status_code=409, detail="This session has concluded; recap history is now read-only")
     await service.interrupt_and_wait(session_id)
     return service.request_recap(session_id, payload.focus, payload.periodic)
 
 
 @app.post("/api/sessions/{session_id}/documents", status_code=202)
 async def upload_document(session_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
-    require_session(session_id)
+    session = require_session(session_id)
+    if session["state"] in {"CLOSING", "CLOSED"}:
+        raise HTTPException(status_code=409, detail="This session has concluded; its source library is read-only")
     original_name = Path(file.filename or "document").name
     try:
         extension = safe_extension(original_name)

@@ -84,9 +84,17 @@ Run only when external connectivity, credentials, and API capacity are intention
 .\.venv\Scripts\python.exe .\scripts\smoke_generation.py
 ```
 
+To verify live session-profile switching with an approved local source document:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\simulate_reasoning_profiles.py --pdf "C:\path\to\approved-paper.pdf" --rounds 2
+```
+
+The script cycles through Fast, Research, and Verification, reports the actual routed models and reasoning levels from SSE metadata, measures first-visible-text and total latency, checks output sizes and provider errors, and leaves the final session open for UI inspection. It sends extracted document content to the configured providers and consumes API capacity, so it is never part of deterministic CI. Use `--session-id <id>` to repeat the comparison with an already-digested session and avoid another source-digestion call.
+
 ## Data lifecycle
 
-The app retains one session. Starting a new table deletes the prior transcript, digest history, evaluation, FTS passages, and managed uploads. Download, summary review, and learning evaluation are optional and never gate the next table.
+The app retains exactly one session. Session creation returns `409 Conflict` whenever any prior record exists unless the caller explicitly uses `force_reset=true`; reset deletes the prior transcript, digest history, evaluation, FTS passages, and managed uploads. Download, summary review, and learning evaluation are optional and never gate the next table. Once closeout begins, recap and source-upload routes are read-only so the downloadable record cannot change underneath Sam.
 
 ## Deferred architecture
 

@@ -16,6 +16,8 @@ frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
 .work/
+temp_*
+tmp_*
 evaluation/results/
 
 data/

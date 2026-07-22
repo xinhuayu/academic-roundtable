@@ -11,6 +11,8 @@
 
 The harness tests whether Academic Roundtable is delivering its governing outcome: **deep conversations for better learning**. It is designed for lean prompt and orchestration experiments, not for ranking models in the abstract.
 
+The session now supports three model profiles: **Fast** (the latency baseline), **Research** (configured flagship models with medium reasoning), and **Verification** (flagship models with high reasoning and longer deadlines). Treat the profile as an experimental factor: compare profiles on the same fixture, topic, source policy, and rounds, and record latency and visible word count alongside learning ratings. Do not interpret a larger token allowance as evidence of better learning.
+
 The process deliberately separates two kinds of evidence:
 
 1. **Automated diagnostics** detect observable risks such as excessive turn length, high lexical repetition, unbounded AI-only stretches, weak response engagement, and poor digest term coverage.

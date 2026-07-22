@@ -1,0 +1,4 @@
+interface:
+  display_name: "Momo Comprehensive Summary Digest"
+  short_description: "Build a rigorous, comprehensive session digest"
+  default_prompt: "Use $momo-comprehensive-summary-digest to synthesize the full academic roundtable record."

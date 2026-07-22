@@ -16,12 +16,14 @@ Its guiding principle is **deep conversations for better learning**. The AIs deb
 
 Ordinary multi-agent chats tend to become long parallel monologues. Academic Roundtable instead treats focus, human authority, and readable disagreement as system behavior:
 
-- Bobby develops the strongest defensible case through mechanisms, evidence needs, and integrative explanations; Momo persistently stress-tests Bobby's and Sam's assumptions, methods, alternatives, and boundary conditions. Both answer Sam directly and pursue depth without turning concise contributions into mini-essays.
+- Bobby develops the strongest defensible case through mechanisms, evidence needs, and integrative explanations; Momo persistently audits Bobby's and Sam's claims for necessary assumptions, evidentiary support, scope, causal interpretation, qualifications, alternatives, and boundary conditions. She preserves what is defensible and identifies the decisive test rather than disagreeing by reflex. Both answer Sam directly and pursue depth without turning concise contributions into mini-essays.
 - AI-only discussion is limited to two to five rounds at a time. Automatic mode uses two rounds by default, with an occasional three-round variation; Sam may select an exact fixed length.
 - Sam can interrupt at any moment without losing already streamed text.
 - Live turns use the Topic Digest, latest Conversation Digest, active question, and five recent rounds.
 - Uploaded sources can ground the discussion, while allowed model knowledge is labeled as background knowledge.
-- Full transcripts and digest history remain available for final synthesis and download.
+- Sam can choose Fast discussion, Research mode, or Verification mode. Research and Verification route live turns and background digests to configured flagship models with medium or high reasoning and larger, longer budgets; the Fast profile remains the low-latency default.
+- The AI LLM mode is an explicit button group on both the landing page and conversation page. The conversation control applies to the next segment and is disabled while the AIs are streaming.
+- Full transcripts and digest history remain available for final synthesis and download. The closeout Summary Digest combines the comprehensive synthesis, processed source digests, Topic/Conversation Digests, and complete digest history in one readable Markdown record.
 - The closeout page shows a highlighted blue status notice while final and one-page summaries are generated. After processing, the save/download row appears first and **Evaluate learning** follows beneath it; saved rubric results are included in later downloads.
 
 ## Core workflow
@@ -61,10 +63,11 @@ flowchart LR
 - Provider health and background-job progress
 - Temporary local System cards for active Topic Digest and Conversation Digest work; these disappear on completion and are never stored or exported
 - Blue closeout progress messages that distinguish final-summary and one-page-summary processing
-- Markdown, JSON, and ZIP session exports after closure
+- Readable transcript, comprehensive Summary Digest, one-page summary, and complete ZIP archive exports after closure; structured JSON remains inside the archive for machine use
 - An **End** action that interrupts generation and opens closeout immediately
 - Cancellable final-summary generation; downloads remain available without it
 - Single-session local retention with a protected download handoff
+- Optional PDF/TXT/Markdown sources can be selected on the landing page; they are uploaded and queued for background digestion immediately after Start, while the greeting screen is already available. The conversation-page evidence library remains available for later additions.
 
 ## Architecture
 
@@ -142,6 +145,7 @@ BOBBY_TOTAL_TIMEOUT_SECONDS=240
 
 # Longer limits apply to medium-reasoning background synthesis.
 DIGEST_PROVIDER=momo
+FINAL_SUMMARY_MAX_OUTPUT_TOKENS=6000
 DIGEST_SECTION_TIMEOUT_SECONDS=300
 DIGEST_JOB_TIMEOUT_SECONDS=900
 ```
@@ -149,13 +153,31 @@ DIGEST_JOB_TIMEOUT_SECONDS=900
 `MOMO_API_KEY_ENV` and `BOBBY_API_KEY_ENV` contain the **names** of environment variables, not the secrets themselves.
 Supported API styles are `responses`, `chat_completions`, and `anthropic_messages`.
 
-Reasoning is task-aware. Live turns use each participant's configured effort (`low` by default for speed); source, topic, conversation, final-summary, and learning-evaluation requests explicitly use `medium`. Responses and Chat Completions adapters forward this setting, and Anthropic Messages currently forwards budget/control through streaming with token-stop handling. Momo uses an 800-token base live allowance and Bobby uses 1,400; with the 50% live-token and live-timeout multipliers, effective limits and timing grow automatically during active rounds. Momo's OpenAI adapter is the default provider for source, topic, conversation, and final digests. A Chat Completions `finish_reason` of `length` is treated as an interrupted response rather than silent success, and the next AI does not continue from that fragment. Provider timeout variables govern live calls; background digest jobs use their separate section and job deadlines.
+Reasoning is task-aware. Fast live turns use each participant's configured effort (`low` by default for speed); Research selects the configured flagship pair with medium reasoning; Verification selects the flagship pair with high reasoning and is also activated for an explicit request to check the original source. The UI keeps visible turns concise even when the model allowance grows. Source, topic, conversation, final-summary, and learning-evaluation requests use larger background budgets, with Research and Verification applying additional token and deadline multipliers. Responses and Chat Completions adapters forward model and reasoning overrides, and Anthropic Messages remains available for Bobby. Momo uses an 800-token base live allowance and Bobby uses 1,400 in Fast mode; profile multipliers expand only the selected session. A Chat Completions `finish_reason` of `length` is treated as an interrupted response rather than silent success, and the next AI does not continue from that fragment. Provider timeout variables govern live calls; background digest jobs use their separate section and job deadlines.
+
+### Conversation profiles
+
+The default `.env.example` includes separate model and reasoning settings for the profiles:
+
+- **Fast discussion:** current provider defaults, low reasoning, shortest latency.
+- **Research mode:** GPT-5.6 Sol for Momo and Gemini 3.1 Pro Preview for Bobby by default, medium reasoning, approximately 2× live allowances and longer deadlines.
+- **Verification mode:** the same flagship pair by default, high reasoning, approximately 2× live allowances and 2.5× live deadlines. Raw PDF/document excerpts are still withheld unless Sam explicitly asks to check the original source.
+
+Use Research or Verification for derivations, statistical model comparisons, sensitivity analysis, disputed claims, or source checks. For numerical work, add a calculator/Python/R verification step; model reasoning does not replace deterministic computation.
 
 Check connectivity without displaying credentials:
 
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\check_providers.py
 ```
+
+For an opt-in, end-to-end comparison of all three profiles with an approved local paper:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\simulate_reasoning_profiles.py --pdf "C:\path\to\approved-paper.pdf" --rounds 2
+```
+
+This live script consumes provider capacity, reports actual model/reasoning routing plus latency and output size, and leaves the session open for inspection. It is not run by CI. See [docs/INDEPENDENT-AUDIT.md](docs/INDEPENDENT-AUDIT.md) for the recorded cognitive-trajectories simulation.
 
 ## Development
 
@@ -214,7 +236,7 @@ Optional live-provider smoke test (uses API capacity):
 .\.venv\Scripts\python.exe .\scripts\smoke_generation.py --participant Bobby
 ```
 
-The current deterministic backend suite contains 46 passing tests. The built-in learning-quality workflow and optional developer comparison tools are documented in [docs/LEARNING-QUALITY-EVALUATION.md](docs/LEARNING-QUALITY-EVALUATION.md). See [docs/CRITICAL-REVIEW.md](docs/CRITICAL-REVIEW.md) for the prioritized agent-system review and [docs/INDEPENDENT-AUDIT.md](docs/INDEPENDENT-AUDIT.md) for the broader audit.
+The current deterministic backend suite contains 51 passing tests; the frontend suite contains 3 passing tests and the production build is verified. The built-in learning-quality workflow and optional developer comparison tools are documented in [docs/LEARNING-QUALITY-EVALUATION.md](docs/LEARNING-QUALITY-EVALUATION.md). See [docs/CRITICAL-REVIEW.md](docs/CRITICAL-REVIEW.md) for the prioritized agent-system review and [docs/INDEPENDENT-AUDIT.md](docs/INDEPENDENT-AUDIT.md) for the broader audit.
 
 ## Conversation memory
 
@@ -233,13 +255,13 @@ Raw PDF/document passages are not included in ordinary rounds. If Sam explicitly
 
 ## Session lifecycle and retention
 
-The application intentionally retains one session at a time:
+The application intentionally retains one session at a time. Both the interface and direct API creation require explicit reset whenever any prior session record exists, including a closed one:
 
 1. Sam concludes the current session.
 2. The active stream finishes cancelling and the closeout page starts an optional final summary.
 3. Sam may wait for the summary, cancel it, or skip directly to the next-table action.
 4. A blue progress message distinguishes session-material summarization from one-page-summary generation and asks Sam to wait or cancel.
-5. Once processing ends, the closeout page presents Markdown, JSON, ZIP, and one-page-summary downloads, followed by the optional learning-evaluation control.
+5. Once processing ends, the closeout page presents the complete archive, readable transcript, one-page summary, and comprehensive Summary Digest downloads, followed by the optional learning-evaluation control.
 6. Sam may complete and save the built-in learning evaluation; subsequent downloads include it.
 7. If the record has not been saved—or the summary was skipped—the app asks whether Sam wants to stay for optional save/evaluation work.
 8. Selecting **No, start new roundtable** immediately clears prior database history, evaluation, FTS passages, and managed uploads before showing the new-table form.
@@ -263,6 +285,7 @@ Runtime data, uploads, databases, environment files, logs, dependency directorie
 | Method | Endpoint | Purpose |
 |---|---|---|
 | `GET` | `/api/health` | Application and provider health |
+| `GET` | `/api/meta` | Runtime metadata, profile catalog, and PDF dependency summary |
 | `GET` | `/api/documents/dependencies` | Confirm PDF extraction dependencies (`pymupdf`, `pdfplumber`) |
 | `GET/POST` | `/api/sessions` | List or create the single retained session |
 | `GET/PATCH` | `/api/sessions/{id}` | Read or update session settings |
@@ -273,7 +296,7 @@ Runtime data, uploads, databases, environment files, logs, dependency directorie
 | `POST` | `/api/sessions/{id}/documents` | Upload and schedule source digestion |
 | `GET` | `/api/sessions/{id}/jobs` | Inspect session background jobs |
 | `GET/PUT` | `/api/sessions/{id}/learning-evaluation` | Open or save the session-scoped learning evaluation |
-| `GET` | `/api/sessions/{id}/export` | Download Markdown, JSON, or ZIP after closure |
+| `GET` | `/api/sessions/{id}/export` | Download transcript Markdown, Summary Digest, one-page summary, structured JSON, or ZIP after closure |
 
 ## Project structure
 

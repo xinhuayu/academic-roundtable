@@ -1,12 +1,18 @@
 ﻿import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api, exportUrl } from "./api";
-import type { DocumentDependencies, EvaluationRatings, Job, LearningEvaluationBundle, Message, ProviderHealth, Session, Speaker, StreamEvent } from "./types";
+import type { ConversationProfile, DocumentDependencies, EvaluationRatings, Job, LearningEvaluationBundle, Message, ProviderHealth, Session, Speaker, StreamEvent } from "./types";
 
 const speakerMeta: Record<Speaker, { monogram: string; subtitle: string }> = {
   Momo: { monogram: "M", subtitle: "tests and challenges" },
   Bobby: { monogram: "B", subtitle: "develops the case" },
   Sam: { monogram: "S", subtitle: "academic host" },
   System: { monogram: "∴", subtitle: "roundtable recap" },
+};
+
+const profileMeta: Record<ConversationProfile, { label: string; short: string }> = {
+  fast: { label: "Fast discussion", short: "Fast" },
+  research: { label: "Research mode", short: "Research" },
+  verification: { label: "Verification mode", short: "Verification" },
 };
 
 function formatDigest(value: unknown): string {
@@ -18,6 +24,40 @@ function formatDigest(value: unknown): string {
 
 function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone?: string }) {
   return <span className={`badge badge-${tone}`}>{children}</span>;
+}
+
+function ProfileChoice({
+  value,
+  onChange,
+  disabled = false,
+  compact = false,
+}: {
+  value: ConversationProfile;
+  onChange: (profile: ConversationProfile) => void;
+  disabled?: boolean;
+  compact?: boolean;
+}) {
+  return (
+    <div className={`profile-choice ${compact ? "profile-choice-compact" : ""}`} role="group" aria-label="AI LLM mode">
+      {(Object.keys(profileMeta) as ConversationProfile[]).map((profile) => (
+        <button
+          key={profile}
+          type="button"
+          className={value === profile ? "is-selected" : ""}
+          aria-pressed={value === profile}
+          disabled={disabled}
+          title={profile === "fast"
+            ? "Current provider models with the shortest response time"
+            : profile === "research"
+              ? "Flagship models with medium reasoning for difficult academic discussion"
+              : "Flagship models with high reasoning for verification and the hardest claims"}
+          onClick={() => onChange(profile)}
+        >
+          {compact ? profileMeta[profile].short : profileMeta[profile].label}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export function buildDigestStatusMessages(jobs: Job[]): Message[] {
@@ -124,25 +164,58 @@ function TranscriptMessage({ message }: { message: Message }) {
 }
 
 
-function NewSessionForm({
+export function NewSessionForm({
   onCreate,
   busy,
+  documentDependencies,
 }: {
-  onCreate: (topic: string, goal: string) => void;
+  onCreate: (topic: string, goal: string, profile: ConversationProfile, sources: File[]) => void;
   busy: boolean;
+  documentDependencies: DocumentDependencies | null;
 }) {
   const [topic, setTopic] = useState("");
   const [goal, setGoal] = useState("Explore the topic deeply, compare explanations, and identify what remains uncertain.");
-  const canSubmit = topic.trim().length >= 3 && !busy;
+  const [profile, setProfile] = useState<ConversationProfile>("fast");
+  const [sources, setSources] = useState<File[]>([]);
+  const pdfReady = Boolean(documentDependencies?.pymupdf && documentDependencies?.pdfplumber);
+  const blockedPdf = sources.some((file) => file.name.toLowerCase().endsWith(".pdf")) && documentDependencies !== null && !pdfReady;
+  const canSubmit = topic.trim().length >= 3 && !busy && !blockedPdf;
+
+  const addSources = (files: FileList | null) => {
+    if (!files) return;
+    setSources((current) => {
+      const next = [...current];
+      for (const file of Array.from(files)) {
+        const duplicate = next.some((item) => item.name === file.name && item.size === file.size && item.lastModified === file.lastModified);
+        if (!duplicate) next.push(file);
+      }
+      return next;
+    });
+  };
 
   return (
     <form className="new-session" onSubmit={(event) => {
       event.preventDefault();
       if (!canSubmit) return;
-      onCreate(topic.trim(), goal.trim());
+      onCreate(topic.trim(), goal.trim(), profile, sources);
     }}>
       <label>Roundtable topic<textarea value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="e.g., When can an observational estimate support a causal interpretation?" rows={3} /></label>
       <label>Sam’s learning goal<textarea value={goal} onChange={(event) => setGoal(event.target.value)} rows={2} /></label>
+      <div className="profile-field"><span>AI LLM mode</span><ProfileChoice value={profile} onChange={setProfile} /><small>Choose Fast for quick exploration, Research for difficult math/statistics, or Verification for high-depth checking.</small></div>
+      <section className="landing-source-panel" aria-labelledby="landing-source-title">
+        <div>
+          <span className="eyebrow" id="landing-source-title">Source documents · optional</span>
+          <p>Select sources now. After Start, extracted sections are sent to the configured model server for digestion while Momo and Bobby greet Sam; ordinary discussion then uses the processed digest.</p>
+        </div>
+        <label className="upload-zone landing-upload-zone">
+          <input type="file" multiple accept=".pdf,.txt,.md,.markdown" onChange={(event) => { addSources(event.target.files); event.currentTarget.value = ""; }} />
+          <span>+ Select sources</span>
+          <small>PDF, TXT, or Markdown · 30 MB each</small>
+        </label>
+        {sources.length > 0 && <div className="landing-source-list">{sources.map((file) => <div key={`${file.name}-${file.size}-${file.lastModified}`}><span><strong>{file.name}</strong><small>{Math.max(1, Math.round(file.size / 1024)).toLocaleString()} KB · queued after Start</small></span><button type="button" onClick={() => setSources((current) => current.filter((item) => item !== file))} aria-label={`Remove ${file.name}`}>Remove</button></div>)}</div>}
+        {blockedPdf && <div className="dependency-warning"><strong>PDF selection needs setup:</strong> install PyMuPDF and pdfplumber, then restart the app. TXT and Markdown remain available.</div>}
+      </section>
+      <p className="form-hint">Research and verification modes allow more model work and may take longer. Raw source excerpts are only reopened when Sam explicitly asks to check the original document.</p>
       <p className="retention-warning">This app keeps one local roundtable at a time.</p>
       <button className="button button-primary" disabled={!canSubmit}>Start roundtable</button>
     </form>
@@ -263,12 +336,13 @@ function App() {
   const [evaluation, setEvaluation] = useState<LearningEvaluationBundle | null>(null);
   const [evaluationBusy, setEvaluationBusy] = useState(false);
   const [confirmNewSession, setConfirmNewSession] = useState(false);
-  const [pendingLandingSession, setPendingLandingSession] = useState<{ topic: string; goal: string } | null>(null);
+  const [pendingLandingSession, setPendingLandingSession] = useState<{ topic: string; goal: string; profile: ConversationProfile; sources: File[] } | null>(null);
   const conversationPanel = useRef<HTMLElement>(null);
   const transcriptViewport = useRef<HTMLDivElement>(null);
   const composerInput = useRef<HTMLTextAreaElement>(null);
   const pendingStart = useRef<{ rounds: number; speaker?: "Momo" | "Bobby" } | null>(null);
   const discardedSessionIds = useRef(new Set<string>());
+  const wasBusy = useRef(false);
 
   const refreshSession = async (id = session?.id) => {
     if (!id) return;
@@ -317,6 +391,24 @@ function App() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [busy]);
+
+  useEffect(() => {
+    const AIJustReturnedFloor = wasBusy.current && !busy && session?.state === "HUMAN_FLOOR";
+    wasBusy.current = busy;
+    if (!AIJustReturnedFloor) return;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        const viewport = transcriptViewport.current;
+        if (viewport) viewport.scrollTop = viewport.scrollHeight;
+        composerInput.current?.focus({ preventScroll: true });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [busy, session?.state]);
   useEffect(() => {
     if (!session || !session.jobs.some((job) => ["queued", "running"].includes(job.status))) return;
     const timer = window.setInterval(() => refreshSession(session.id).catch(() => undefined), 2500);
@@ -326,6 +418,7 @@ function App() {
   const activeJobs = useMemo(() => session?.jobs.filter((job) => ["queued", "running"].includes(job.status)) ?? [], [session?.jobs]);
   const activeFinalSummaryJob = activeJobs.find((job) => job.kind === "final_summary");
   const activeOnePageSummaryJob = activeJobs.find((job) => job.kind === "one_page_summary");
+  const recapActive = activeJobs.some((job) => job.kind === "conversation_digest");
   const digestStatusMessages = useMemo(() => buildDigestStatusMessages(activeJobs), [activeJobs]);
   const conversationMessages = useMemo(() => session?.messages.filter((message) => !(message.speaker === "System" && message.metadata.kind === "recap")) ?? [], [session?.messages]);
   const recapMessages = useMemo(() => session?.messages.filter((message) => message.speaker === "System" && ["recap", "final_summary"].includes(String(message.metadata.kind))) ?? [], [session?.messages]);
@@ -334,7 +427,19 @@ function App() {
   const pdfDependenciesReady = Boolean(documentDependencies?.pymupdf && documentDependencies?.pdfplumber);
   const chooseRoundCount = () => automaticRoundVariation ? (Math.random() < 0.2 ? 3 : 2) : rounds;
 
-  const createSession = async (topic: string, learningGoal: string, forceReset = false) => {
+  const enqueueInitialSources = async (sessionId: string, sources: File[]) => {
+    for (const file of sources) {
+      try {
+        await api.upload(sessionId, file);
+        const refreshed = await api.getSession(sessionId);
+        setSession((current) => current?.id === sessionId ? refreshed : current);
+      } catch (cause) {
+        setError(`Could not add ${file.name}: ${(cause as Error).message}`);
+      }
+    }
+  };
+
+  const createSession = async (topic: string, learningGoal: string, profile: ConversationProfile = "fast", forceReset = false, initialSources: File[] = []) => {
     setBusy(true); setError("");
     try {
       const created = await api.createSession({
@@ -343,22 +448,24 @@ function App() {
         rounds_per_segment: automaticRoundVariation ? 2 : rounds,
         sources_only: false,
         periodic_summary: true,
+        conversation_profile: profile,
         force_reset: forceReset,
       });
       setSession(created);
+      if (initialSources.length > 0) void enqueueInitialSources(created.id, initialSources);
     } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); }
   };
 
-  const requestLandingSession = async (topic: string, learningGoal: string) => {
+  const requestLandingSession = async (topic: string, learningGoal: string, profile: ConversationProfile, sources: File[]) => {
     if (busy) return;
     setError("");
     try {
       const existing = await api.listSessions();
       if (existing.length > 0) {
-        setPendingLandingSession({ topic, goal: learningGoal });
+        setPendingLandingSession({ topic, goal: learningGoal, profile, sources });
         return;
       }
-      await createSession(topic, learningGoal, false);
+      await createSession(topic, learningGoal, profile, false, sources);
     } catch (cause) {
       setError((cause as Error).message);
     }
@@ -368,7 +475,7 @@ function App() {
     if (!pendingLandingSession || busy) return;
     const draft = pendingLandingSession;
     setPendingLandingSession(null);
-    await createSession(draft.topic, draft.goal, true);
+    await createSession(draft.topic, draft.goal, draft.profile, true, draft.sources);
   };
 
   const handleStreamEvent = (event: StreamEvent, streamState: { tempId?: string }) => {
@@ -430,8 +537,19 @@ function App() {
   };
 
   const interrupt = async () => { if (session) await api.interrupt(session.id); };
-  const requestRecap = async () => { if (!session) return; await api.interrupt(session.id); await api.recap(session.id); await refreshSession(session.id); };
+  const requestRecap = async () => {
+    if (!session || recapActive) return;
+    setError("");
+    try {
+      await api.interrupt(session.id);
+      await api.recap(session.id);
+      await refreshSession(session.id);
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  };
   const toggleSetting = async (key: "sources_only" | "periodic_summary", value: boolean) => { if (session) setSession(await api.updateSession(session.id, { [key]: value })); };
+  const updateConversationProfile = async (value: ConversationProfile) => { if (session && !busy) setSession(await api.updateSession(session.id, { conversation_profile: value })); };
   const upload = async (file: File) => {
     if (!session) return;
     const isPdf = file.name.toLowerCase().endsWith(".pdf");
@@ -539,7 +657,7 @@ function App() {
       {!session ? (
         <main className="empty-stage">
           <img className="hero-logo" src="/academic-roundtable-logo.png" alt="Momo, Bobby, and Sam in conversation" />
-          <div className="empty-copy"><div className="eyebrow">New inquiry</div><h1>Put a difficult idea at the center of the table.</h1><p>Momo and Bobby debate the substance. Sam questions, judges, and guides where the learning goes next.</p><NewSessionForm onCreate={requestLandingSession} busy={busy} /></div>
+          <div className="empty-copy"><div className="eyebrow">New inquiry</div><h1>Put a difficult idea at the center of the table.</h1><p>Momo and Bobby debate the substance. Sam questions, judges, and guides where the learning goes next.</p><NewSessionForm onCreate={requestLandingSession} busy={busy} documentDependencies={documentDependencies} /></div>
           {pendingLandingSession && (
             <div className="new-session-confirm" role="dialog" aria-labelledby="landing-reset-title" aria-modal="true">
               <div>
@@ -585,7 +703,7 @@ function App() {
                 {onePageSummary ? (
                   <a className="button button-ghost" href={exportUrl(session.id, "one_page_summary")} download onClick={() => setRecordDownloaded(true)}>Download one-page summary</a>
                 ) : <button className="button button-ghost" disabled>Preparing one-page summary…</button>}
-                <a className="button button-ghost" href={exportUrl(session.id, "json")} download onClick={() => setRecordDownloaded(true)}>Download structured JSON</a>
+                <a className="button button-ghost" href={exportUrl(session.id, "summary_digest")} download onClick={() => setRecordDownloaded(true)}>Summary digest</a>
               </> : <><button className="button button-primary" disabled>Preparing downloads…</button><button className="button button-stop" onClick={cancelSummary}>Cancel summary</button></>}
             </div>
             {session.state === "CLOSED" && !evaluation && (
@@ -617,7 +735,7 @@ function App() {
         <main className="workspace">
           <section className="topic-bar">
             <div><div className="eyebrow">Active inquiry</div><h1>{session.topic}</h1><p>{session.learning_goal}</p></div>
-            <div className="topic-actions"><span><strong>{session.completed_rounds}</strong> rounds</span></div>
+            <div className="topic-actions"><div className="topic-mode-control"><span>AI LLM mode · next segment</span><ProfileChoice value={session.conversation_profile} onChange={updateConversationProfile} disabled={busy} compact /></div><span><strong>{session.completed_rounds}</strong> rounds</span></div>
           </section>
 
           {error && <div className="error-banner"><span>{error}</span><button onClick={() => setError("")}>Dismiss</button></div>}
@@ -636,7 +754,7 @@ function App() {
                 <form onSubmit={sendMessage} className={`composer ${!busy && !concluded ? "sam-has-floor" : ""}`}>
                   <div className="composer-topline"><label>Address <select value={target} onChange={(event) => setTarget(event.target.value)}><option value="roundtable">Automatic</option><option value="Momo">Momo</option><option value="Bobby">Bobby</option><option value="both">Both independently</option></select></label><span>Names and @mentions override</span></div>
                   <div className="composer-actions">
-                    {!concluded && <div className="quick-actions"><button type="button" onClick={requestRecap}>Recap</button><button type="button" onClick={() => setComposer("What evidence would distinguish these explanations?")}>Evidence</button><button type="button" onClick={() => setComposer(`Return to the active question: ${session.active_question}`)}>Refocus</button></div>}
+                    {!concluded && <div className="quick-actions"><button type="button" onClick={requestRecap} disabled={recapActive}>Recap</button><button type="button" onClick={() => setComposer("What evidence would distinguish these explanations?")}>Evidence</button><button type="button" onClick={() => setComposer(`Return to the active question: ${session.active_question}`)}>Refocus</button></div>}
                     <button type="submit" className="button button-primary composer-submit" disabled={concluded || !composer.trim()}>{concluded ? "Ended" : "Answer"}</button>
                   </div>
                   <textarea ref={composerInput} disabled={concluded} value={composer} onChange={(event) => setComposer(event.target.value)} placeholder={concluded ? "This session has concluded. The complete record is ready to export." : hasSamDirection ? "Ask, challenge, judge, or redirect…" : "Greet Momo and Bobby, then set the first scientific direction…"} rows={8} />
@@ -652,13 +770,13 @@ function App() {
 
           <section className="below-grid">
             <article className="info-card"><div className="section-heading"><span className="eyebrow">Topic digest</span><Badge>{String(session.topic_digest.status ?? "active")}</Badge></div><h3>{String(session.topic_digest.central_question ?? session.topic)}</h3><dl className="digest-list"><div><dt>Key concepts</dt><dd>{formatDigest(session.topic_digest.key_concepts)}</dd></div><div><dt>Scope</dt><dd>{formatDigest(session.topic_digest.scope)}</dd></div><div><dt>Perspectives</dt><dd>{formatDigest(session.topic_digest.theoretical_perspectives)}</dd></div></dl></article>
-            <article className="info-card summary-card"><div className="section-heading"><span className="eyebrow">Summary history</span><Badge>{session.summary_history?.length ? `${session.summary_history.length} saved` : "pending"}</Badge></div><dl className="digest-list"><div><dt>Active thread</dt><dd>{formatDigest(session.conversation_digest.active_question || session.active_question)}</dd></div><div><dt>Agreements</dt><dd>{formatDigest(session.conversation_digest.agreements)}</dd></div><div><dt>Disagreements</dt><dd>{formatDigest(session.conversation_digest.disagreements)}</dd></div><div><dt>Open questions</dt><dd>{formatDigest(session.conversation_digest.open_questions)}</dd></div></dl>{recapMessages.map((message) => <div className="visible-recap" key={message.id}><strong>{message.metadata.kind === "final_summary" ? "Final summary" : "Recap"}</strong><p><HighlightMentions text={message.content} /></p></div>)}{!concluded && <button className="text-button" onClick={requestRecap}>Summarize the conversation so far →</button>}</article>
+            <article className="info-card summary-card"><div className="section-heading"><span className="eyebrow">Summary history</span><Badge>{session.summary_history?.length ? `${session.summary_history.length} saved` : "pending"}</Badge></div><dl className="digest-list"><div><dt>Active thread</dt><dd>{formatDigest(session.conversation_digest.active_question || session.active_question)}</dd></div><div><dt>Agreements</dt><dd>{formatDigest(session.conversation_digest.agreements)}</dd></div><div><dt>Disagreements</dt><dd>{formatDigest(session.conversation_digest.disagreements)}</dd></div><div><dt>Open questions</dt><dd>{formatDigest(session.conversation_digest.open_questions)}</dd></div></dl>{recapMessages.map((message) => <div className="visible-recap" key={message.id}><strong>{message.metadata.kind === "final_summary" ? "Final summary" : "Recap"}</strong><p><HighlightMentions text={message.content} /></p></div>)}{!concluded && <button className="text-button" onClick={requestRecap} disabled={recapActive}>Summarize the conversation so far →</button>}</article>
           </section>
 
           <section className="evidence-card">
             <div>
               <div className="section-heading"><span className="eyebrow">Evidence library</span><Badge>{session.documents.length}</Badge></div>
-              <p>Documents stay local; only relevant excerpts are sent to the model servers.</p>
+              <p>Files are stored locally. Extracted sections are sent to the configured model server for digestion; ordinary turns use the processed digest, and raw excerpts return only for Sam's explicit source check.</p>
             </div>
             <label className="upload-zone">
               <input type="file" accept=".pdf,.txt,.md,.markdown" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} />

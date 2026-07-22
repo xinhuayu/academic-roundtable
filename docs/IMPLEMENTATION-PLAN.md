@@ -75,9 +75,9 @@ The project uses short, testable increments. It does not add multi-user or cloud
 - Local-only System digestion notices in the transcript, derived from queued/running topic or conversation digest jobs and removed automatically without persistence
 - Participant-name highlighting and distinct background-knowledge styling
 - Digests and periodic summaries below the conversation
-- Close-session page with highlighted blue final-summary and one-page-summary progress stages, one-page summary download, summary cancellation, and digest-based fallback wrap-up
+- Close-session page with highlighted blue final-summary and one-page-summary progress stages, comprehensive Summary Digest download, one-page summary download, summary cancellation, and digest-based fallback wrap-up
 - Save/download row before the optional **Evaluate learning** action
-- Momo-authored one-page learning summary (key concepts, main issues, strategies, research priorities) plus Markdown, JSON, and ZIP downloads
+- Momo-authored comprehensive Summary Digest using a dedicated critical-synthesis skill, plus a separate one-page learning summary (key concepts, main issues, strategies, research priorities), readable transcript, and ZIP archive downloads; structured JSON remains available through the API and inside the archive
 - Guarded one-session retention, optional save/evaluation handoff, and safe one-choice purge before replacement
 
 ## Audit stabilization increment — complete
@@ -91,6 +91,11 @@ The independent audit added:
 - Final-summary serialization behind the session lock
 - Exact frontend dependency versions and additional generated-file exclusions
 - Regression tests for timeout recovery and lifecycle safety
+- Exact server-side one-session enforcement for active and closed retained sessions
+- Read-only closing/closed records, with recap and source upload rejected after closeout begins
+- Summary cancellation constrained to closeout and propagated across final-summary and one-page-summary jobs
+- Active recap-job reuse to avoid duplicate provider work, plus latest-completed one-page export selection
+- Accurate UI disclosure that extracted source sections are transmitted to the configured model server for digestion
 - Honest documentation of deferred reliability and production features
 
 ## Agent reliability review increment — complete
@@ -115,9 +120,20 @@ The prioritized rationale and postponed work are recorded in [CRITICAL-REVIEW.md
 - Background digest sections and complete synthesis jobs have separate, longer configurable deadlines.
 - Regression coverage protects reasoning propagation and timeout environment parsing.
 - Host-invitation detection requires a complete final question to Sam, preventing ordinary direct address from prematurely ending a segment.
-- Roles are deliberately asymmetric: Bobby develops the strongest defensible case; Momo critiques it and serves as the default OpenAI-backed digest provider.
+- Roles are deliberately asymmetric: Bobby develops the strongest defensible case; Momo audits both Bobby's and Sam's claims for assumptions, evidentiary support, scope, causal interpretation, and required qualification, then identifies a decisive test while avoiding reflexive disagreement. Momo also serves as the default OpenAI-backed digest provider.
 - Participant-specific live budgets allocate 800 base tokens to Momo and 1,400 to Bobby, with a 50% live-token multiplier applied by default during rounds.
 - Chat Completions finish reasons are inspected; length-limited fragments are retained as interrupted and cannot silently hand the floor to the other AI.
+
+## Selective flagship reasoning profiles — complete
+
+- Added a persisted per-session `conversation_profile`: `fast`, `research`, or `verification`.
+- Fast remains the default and preserves the current low-latency provider models and concise live turns.
+- Research routes Momo to GPT-5.6 Sol and Bobby to Gemini 3.1 Pro Preview by default, with medium reasoning, 2× live token/time allowances, and 1.5× background digest deadlines.
+- Verification uses the same flagship pair with high reasoning, 2× live token allowance, and 2.5× live deadlines; explicit requests to check the original source automatically use this profile for one segment.
+- Source excerpts remain excluded from ordinary rounds. Verification mode alone increases reasoning; raw excerpts are still added only when Sam explicitly requests the original source.
+- The landing page and session settings expose the profile selector, `/api/meta` publishes the profile catalog, and `.env.example` documents all override variables.
+- The landing page and conversation header expose explicit AI LLM mode buttons; the in-session choice applies to the next segment and is disabled during active streaming.
+- Numerical/statistical claims remain candidates for a future deterministic calculator or Python/R tool; larger LLM budgets do not substitute for computation.
 
 ## Next agile increments
 

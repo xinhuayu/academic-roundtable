@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { buildDigestStatusMessages, FormattedMessageContent } from "./App";
+import { buildDigestStatusMessages, FormattedMessageContent, NewSessionForm } from "./App";
 
 
 describe("FormattedMessageContent", () => {
@@ -31,5 +31,22 @@ describe("buildDigestStatusMessages", () => {
       temporary: true,
       metadata: { kind: "ephemeral_digest_status", job_id: "topic-1" },
     });
+  });
+});
+
+describe("NewSessionForm", () => {
+  it("offers optional multi-file source staging before session creation", () => {
+    const markup = renderToStaticMarkup(
+      <NewSessionForm
+        onCreate={() => undefined}
+        busy={false}
+        documentDependencies={{ pymupdf: true, pdfplumber: true, pypdf: true }}
+      />,
+    );
+
+    expect(markup).toContain("Source documents · optional");
+    expect(markup).toContain('type="file"');
+    expect(markup).toContain("multiple");
+    expect(markup).toContain("extracted sections are sent to the configured model server for digestion");
   });
 });

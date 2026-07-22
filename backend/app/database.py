@@ -45,6 +45,7 @@ class Database:
                     rounds_per_segment INTEGER NOT NULL DEFAULT 2,
                     sources_only INTEGER NOT NULL DEFAULT 0,
                     periodic_summary INTEGER NOT NULL DEFAULT 0,
+                    conversation_profile TEXT NOT NULL DEFAULT 'fast',
                     state TEXT NOT NULL DEFAULT 'HUMAN_FLOOR',
                     active_question TEXT NOT NULL DEFAULT '',
                     topic_digest TEXT NOT NULL DEFAULT '{}',
@@ -149,6 +150,13 @@ class Database:
                     ON summary_digests(session_id, created_at);
                 """
             )
+            session_columns = {
+                row["name"] for row in db.execute("PRAGMA table_info(sessions)").fetchall()
+            }
+            if "conversation_profile" not in session_columns:
+                db.execute(
+                    "ALTER TABLE sessions ADD COLUMN conversation_profile TEXT NOT NULL DEFAULT 'fast'"
+                )
 
     def reconcile_abandoned_work(self) -> dict[str, int]:
         """Make persisted in-flight state honest after a process restart."""
@@ -223,6 +231,7 @@ class Database:
         rounds_per_segment: int,
         sources_only: bool,
         periodic_summary: bool,
+        conversation_profile: str = "fast",
     ) -> dict[str, Any]:
         session_id = new_id("ses")
         now = utc_now()
@@ -243,8 +252,8 @@ class Database:
             db.execute(
                 """INSERT INTO sessions
                 (id, topic, learning_goal, rounds_per_segment, sources_only,
-                 periodic_summary, active_question, topic_digest, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 periodic_summary, conversation_profile, active_question, topic_digest, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     session_id,
                     topic,
@@ -252,6 +261,7 @@ class Database:
                     rounds_per_segment,
                     int(sources_only),
                     int(periodic_summary),
+                    conversation_profile if conversation_profile in {"fast", "research", "verification"} else "fast",
                     topic,
                     json.dumps(provisional_digest),
                     now,
@@ -288,6 +298,7 @@ class Database:
             "rounds_per_segment",
             "sources_only",
             "periodic_summary",
+            "conversation_profile",
             "state",
             "active_question",
             "topic_digest",
@@ -305,6 +316,8 @@ class Database:
                 value = json.dumps(value)
             if key in {"sources_only", "periodic_summary"}:
                 value = int(bool(value))
+            if key == "conversation_profile" and value not in {"fast", "research", "verification"}:
+                value = "fast"
             updates.append(f"{key} = ?")
             values.append(value)
         if not updates:

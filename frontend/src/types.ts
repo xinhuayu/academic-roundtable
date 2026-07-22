@@ -1,4 +1,5 @@
 export type Speaker = "Sam" | "Momo" | "Bobby" | "System";
+export type ConversationProfile = "fast" | "research" | "verification";
 
 export interface Message {
   id: string;
@@ -35,6 +36,7 @@ export interface Session {
   rounds_per_segment: number;
   sources_only: boolean;
   periodic_summary: boolean;
+  conversation_profile: ConversationProfile;
   state: string;
   active_question: string;
   topic_digest: Record<string, unknown>;
@@ -121,4 +123,7 @@ export interface StreamEvent {
   completed_rounds?: number;
   interrupted?: boolean;
   reason?: string;
+  profile?: ConversationProfile;
+  model?: string;
+  reasoning_effort?: string;
 }

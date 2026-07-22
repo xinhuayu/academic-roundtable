@@ -120,6 +120,7 @@ class RoundtableService:
         self.adapters = adapters
         self.momo_skill = self._load_momo_skill()
         self.momo_one_page_summary_skill = self._load_momo_one_page_summary_skill()
+        self.momo_comprehensive_summary_skill = self._load_momo_comprehensive_summary_skill()
         self.cancel_events: dict[str, asyncio.Event] = {}
         self.stream_tasks: dict[str, asyncio.Task[Any]] = {}
         self.session_locks: dict[str, asyncio.Lock] = {}
@@ -152,12 +153,110 @@ class RoundtableService:
         except OSError:
             return ""
 
+    @staticmethod
+    def _load_momo_comprehensive_summary_skill() -> str:
+        skill_path = (
+            Path(__file__).resolve().parent
+            / "skills"
+            / "momo-comprehensive-summary-digest"
+            / "SKILL.md"
+        )
+        try:
+            content = RoundtableService._read_skill_text(skill_path)
+            return re.sub(r"\A---\s*.*?\s*---\s*", "", content, flags=re.DOTALL)
+        except OSError:
+            return ""
+
     def _speaker_live_token_budget(self, speaker: str) -> int:
         if speaker == "Momo":
             return self.settings.momo_live_max_output_tokens
         if speaker == "Bobby":
             return self.settings.bobby_live_max_output_tokens
         return self.settings.live_max_output_tokens
+
+    def _profile_parameters(
+        self,
+        session: dict[str, Any],
+        speaker: str,
+        *,
+        source_verification: bool = False,
+        task: str = "live",
+    ) -> dict[str, Any]:
+        """Resolve model, reasoning, and budget policy for one generation.
+
+        Fast is the stable default. Research selects the configured flagship
+        pair. Verification is automatically selected for an explicit request
+        to reopen the original source and raises reasoning and timeout budgets.
+        Raw source excerpts remain gated by ``source_verification`` itself.
+        """
+        provider = self.adapters.get(speaker).config
+        requested = str(session.get("conversation_profile") or "fast").lower()
+        profile = "verification" if source_verification else requested
+        if profile not in {"fast", "research", "verification"}:
+            profile = "fast"
+        if profile == "research":
+            model = (
+                self.settings.research_momo_model
+                if speaker == "Momo"
+                else self.settings.research_bobby_model
+            )
+            reasoning = (
+                self.settings.research_momo_reasoning_effort
+                if speaker == "Momo"
+                else self.settings.research_bobby_reasoning_effort
+            )
+            token_multiplier = self.settings.research_live_token_multiplier
+            timeout_multiplier = self.settings.research_live_timeout_multiplier
+        elif profile == "verification":
+            model = (
+                self.settings.verification_momo_model
+                if speaker == "Momo"
+                else self.settings.verification_bobby_model
+            )
+            reasoning = (
+                self.settings.verification_momo_reasoning_effort
+                if speaker == "Momo"
+                else self.settings.verification_bobby_reasoning_effort
+            )
+            token_multiplier = self.settings.verification_live_token_multiplier
+            timeout_multiplier = self.settings.verification_live_timeout_multiplier
+        else:
+            model = provider.model
+            reasoning = provider.reasoning_effort
+            token_multiplier = self.settings.live_turn_token_multiplier
+            timeout_multiplier = self.settings.live_turn_timeout_multiplier
+        # Digests have always used at least medium reasoning. Verification and
+        # source-heavy jobs use high reasoning; live turns preserve the profile.
+        if task != "live":
+            reasoning = "high" if profile == "verification" else "medium"
+        return {
+            "profile": profile,
+            "model": model,
+            "reasoning_effort": reasoning,
+            "token_multiplier": token_multiplier,
+            "timeout_multiplier": timeout_multiplier,
+            "digest_timeout_multiplier": 1.0 if profile == "fast" else (1.5 if profile == "research" else 2.0),
+            "digest_token_multiplier": 1.0 if profile == "fast" else (1.5 if profile == "research" else 2.0),
+        }
+
+    def profile_metadata(self) -> list[dict[str, str]]:
+        return [
+            {
+                "id": "fast",
+                "label": "Fast discussion",
+                "description": "Current provider defaults with concise, low-latency turns.",
+            },
+            {
+                "id": "research",
+                "label": "Research mode",
+                "description": "Flagship models with medium reasoning and expanded budgets.",
+            },
+            {
+                "id": "verification",
+                "label": "Verification mode",
+                "description": "Flagship models with high reasoning and longer deadlines; raw source excerpts still require an explicit Sam request.",
+            },
+        ]
 
     def _source_boosts(self, session_id: str) -> tuple[float, float]:
         documents = self.db.list_documents(session_id)
@@ -269,6 +368,9 @@ class RoundtableService:
         source_verification: bool = False,
     ) -> GenerationRequest:
         recent = self.db.recent_round_messages(session["id"], self.settings.recent_round_count)
+        profile = self._profile_parameters(
+            session, speaker, source_verification=source_verification, task="live"
+        )
         source_token_multiplier = self._source_boosts(session["id"])[0] if source_verification else 1.0
         source_context = self._build_source_context(session["id"])
         transcript = join_with_budget(
@@ -381,10 +483,15 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
             ],
             max_output_tokens=self._scaled_tokens(
                 self._speaker_live_token_budget(speaker),
-                source_token_multiplier * self.settings.live_turn_token_multiplier,
+                source_token_multiplier * profile["token_multiplier"],
             ),
-            reasoning_effort=self.adapters.get(speaker).config.reasoning_effort,
+            reasoning_effort=profile["reasoning_effort"],
             verbosity="low",
+            model=profile["model"],
+            stream_idle_timeout=self._scaled_timeout(
+                self.adapters.get(speaker).config.stream_idle_timeout,
+                profile["timeout_multiplier"],
+            ),
         )
 
     def _build_source_context(self, session_id: str) -> str:
@@ -507,12 +614,18 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                             sam_deferred=continue_without_sam and segment_round == 0,
                             source_verification=source_verification,
                         )
-                        per_turn_timeout = source_timeout_multiplier * self.settings.live_turn_timeout_multiplier
+                        turn_profile = self._profile_parameters(
+                            current, speaker, source_verification=source_verification, task="live"
+                        )
+                        per_turn_timeout = source_timeout_multiplier * turn_profile["timeout_multiplier"]
                         yield {
                             "type": "message_start",
                             "speaker": speaker,
                             "round_id": round_row["id"],
                             "source_verification": source_verification,
+                            "profile": turn_profile["profile"],
+                            "model": turn_profile["model"],
+                            "reasoning_effort": turn_profile["reasoning_effort"],
                         }
                         chunks: list[str] = []
                         try:
@@ -693,6 +806,15 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
     def request_recap(self, session_id: str, focus: str | None, periodic: bool | None) -> dict[str, Any]:
         if periodic is not None:
             self.db.update_session(session_id, periodic_summary=periodic)
+        active = next(
+            (
+                job for job in self.db.list_jobs(session_id)
+                if job["kind"] == "conversation_digest" and job["status"] in {"queued", "running"}
+            ),
+            None,
+        )
+        if active:
+            return active
         job = self.db.create_job(session_id, "conversation_digest", {"focus": focus, "visible": True})
         self._spawn(
             self.run_conversation_digest(job["id"], session_id, visible=True, focus=focus),
@@ -719,7 +841,8 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
     async def cancel_final_summary(self, session_id: str) -> bool:
         active_jobs = [
             job for job in self.db.list_jobs(session_id)
-            if job["kind"] == "final_summary" and job["status"] in {"queued", "running"}
+            if job["kind"] in {"final_summary", "one_page_summary"}
+            and job["status"] in {"queued", "running"}
         ]
         task = self.final_summary_tasks.get(session_id)
         cancelled = bool(active_jobs or (task and not task.done()))
@@ -730,11 +853,16 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
             except asyncio.CancelledError:
                 pass
         for job in active_jobs:
+            detail = (
+                "One-page summary cancelled by Sam"
+                if job["kind"] == "one_page_summary"
+                else "Final summary cancelled by Sam"
+            )
             self.db.update_job(
                 job["id"],
                 status="cancelled",
                 progress=1.0,
-                detail="Final summary cancelled by Sam",
+                detail=detail,
                 error=None,
             )
         if self.db.get_session(session_id):
@@ -795,15 +923,23 @@ Requested focus: {focus or 'the full conversation'}
 Transcript:
 {transcript}"""
             adapter = self._digest_adapter()
+            digest_profile = self._profile_parameters(session, adapter.config.participant, task="digest")
             request = GenerationRequest(
                 system=DIGEST_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_content}],
                 max_output_tokens=self.settings.conversation_digest_max_output_tokens,
-                reasoning_effort="medium",
+                reasoning_effort=digest_profile["reasoning_effort"],
                 verbosity="medium",
+                model=digest_profile["model"],
+                stream_idle_timeout=self._scaled_timeout(
+                    adapter.config.stream_idle_timeout,
+                    digest_profile["digest_timeout_multiplier"],
+                ),
             )
             self.db.update_job(job_id, progress=0.35, detail="Synthesizing conversation")
-            async with asyncio.timeout(self.settings.digest_job_timeout):
+            async with asyncio.timeout(
+                self._scaled_timeout(self.settings.digest_job_timeout, digest_profile["digest_timeout_multiplier"])
+            ):
                 raw = await adapter.generate(request)
             digest = parse_json_object(raw)
             if not digest:
@@ -888,19 +1024,44 @@ Transcript:
                     item_limit=6000,
                     label="final-summary transcript turn",
                 )
+            # Momo owns the durable critical synthesis even when another provider
+            # is selected for routine periodic digests.
+            final_adapter = self.adapters.get("Momo")
+            final_profile = self._profile_parameters(
+                session, final_adapter.config.participant, task="digest"
+            )
+            source_token_multiplier, source_timeout_multiplier = self._source_boosts(session_id)
             request = GenerationRequest(
-                system=FINAL_SUMMARY_SYSTEM_PROMPT,
+                system="\n\n".join(
+                    part for part in (
+                        FINAL_SUMMARY_SYSTEM_PROMPT,
+                        self.momo_comprehensive_summary_skill,
+                    ) if part
+                ),
                 messages=[{
                     "role": "user",
                     "content": f"Topic: {session['topic']}\nLearning goal: {session['learning_goal']}\n\n{digest_text}",
                 }],
-                max_output_tokens=self.settings.conversation_digest_max_output_tokens,
-                reasoning_effort="medium",
+                max_output_tokens=self._scaled_tokens(
+                    self.settings.final_summary_max_output_tokens,
+                    source_token_multiplier * final_profile["digest_token_multiplier"],
+                ),
+                reasoning_effort=final_profile["reasoning_effort"],
                 verbosity="medium",
+                model=final_profile["model"],
+                stream_idle_timeout=self._scaled_timeout(
+                    final_adapter.config.stream_idle_timeout,
+                    final_profile["digest_timeout_multiplier"],
+                ),
             )
             self.db.update_job(job_id, progress=0.4, detail="Writing final summary")
-            async with asyncio.timeout(self.settings.digest_job_timeout):
-                summary = (await self._digest_adapter().generate(request)).strip()
+            async with asyncio.timeout(
+                self._scaled_timeout(
+                    self.settings.digest_job_timeout,
+                    source_timeout_multiplier * final_profile["digest_timeout_multiplier"],
+                )
+            ):
+                summary = (await final_adapter.generate(request)).strip()
             final_digest = {"status": "final", "visible_recap": summary}
             self.db.add_summary_digest(
                 session_id, "final", session["completed_rounds"], final_digest
@@ -914,6 +1075,8 @@ Transcript:
             await self._run_one_page_summary_locked(session_id, summary, digest_text, job_id=None)
             self.db.update_session(session_id, state="CLOSED")
             self.db.update_job(job_id, status="complete", progress=1.0, detail="Final summary ready")
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             existing_final = next(
                 (
@@ -1007,18 +1170,27 @@ Transcript:
                     self.momo_one_page_summary_skill,
                 ]
             )
+            summary_profile = self._profile_parameters(session, "Momo", task="digest")
             request = GenerationRequest(
                 system=system,
                 messages=[{"role": "user", "content": summary_prompt}],
                 max_output_tokens=self._scaled_tokens(
                     self.settings.conversation_digest_max_output_tokens, source_token_multiplier
                 ),
-                reasoning_effort="medium",
+                reasoning_effort=summary_profile["reasoning_effort"],
                 verbosity="low",
+                model=summary_profile["model"],
+                stream_idle_timeout=self._scaled_timeout(
+                    self.adapters.get("Momo").config.stream_idle_timeout,
+                    summary_profile["digest_timeout_multiplier"],
+                ),
             )
             self.db.update_job(one_page_job_id, progress=0.45, detail="Writing one-page summary")
             async with asyncio.timeout(
-                self._scaled_timeout(self.settings.digest_job_timeout, source_timeout_multiplier)
+                self._scaled_timeout(
+                    self.settings.digest_job_timeout,
+                    source_timeout_multiplier * summary_profile["digest_timeout_multiplier"],
+                )
             ):
                 one_page_summary = (await self.adapters.get("Momo").generate(request)).strip()
             one_page_summary = one_page_summary or final_summary
@@ -1029,6 +1201,16 @@ Transcript:
                 {"content": one_page_summary},
             )
             self.db.update_job(one_page_job_id, status="complete", progress=1.0, detail="One-page summary ready")
+        except asyncio.CancelledError:
+            if one_page_job_id:
+                self.db.update_job(
+                    one_page_job_id,
+                    status="cancelled",
+                    progress=1.0,
+                    detail="One-page summary cancelled by Sam",
+                    error=None,
+                )
+            raise
         except Exception as exc:
             fallback = "\n\n".join([
                 "## Key concepts",
@@ -1086,16 +1268,27 @@ Recent discussion:
 
 Source summaries:
 {source_summaries}"""
+            topic_adapter = self._digest_adapter()
+            topic_profile = self._profile_parameters(
+                session, topic_adapter.config.participant, task="digest"
+            )
             request = GenerationRequest(
                 system=TOPIC_DIGEST_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": content}],
                 max_output_tokens=self.settings.topic_digest_max_output_tokens,
-                reasoning_effort="medium",
+                reasoning_effort=topic_profile["reasoning_effort"],
                 verbosity="medium",
+                model=topic_profile["model"],
+                stream_idle_timeout=self._scaled_timeout(
+                    topic_adapter.config.stream_idle_timeout,
+                    topic_profile["digest_timeout_multiplier"],
+                ),
             )
             self.db.update_job(job_id, progress=0.4, detail="Synthesizing topic")
-            async with asyncio.timeout(self.settings.digest_job_timeout):
-                raw = await self._digest_adapter().generate(request)
+            async with asyncio.timeout(
+                self._scaled_timeout(self.settings.digest_job_timeout, topic_profile["digest_timeout_multiplier"])
+            ):
+                raw = await topic_adapter.generate(request)
             digest = parse_json_object(raw)
             if not digest:
                 raise ValueError("Topic digest was not valid JSON")
@@ -1109,6 +1302,9 @@ Source summaries:
         document = self.db.get_document(document_id)
         if not document:
             return
+        session = self.db.get_session(document["session_id"])
+        if not session:
+            return
         self.db.update_document(document_id, status="processing", error=None)
         self.db.update_job(job_id, status="running", progress=0.05, detail="Extracting document")
         try:
@@ -1120,6 +1316,8 @@ Source summaries:
             groups = group_passages_for_digest(passages)
             section_digests: list[str] = []
             adapter = self._digest_adapter()
+            digest_profile = self._profile_parameters(session, adapter.config.participant, task="digest")
+            source_token_multiplier, source_timeout_multiplier = self._source_boosts(document["session_id"])
             for index, group in enumerate(groups):
                 self.db.update_job(
                     job_id,
@@ -1134,11 +1332,24 @@ Source summaries:
                             "content": format_passage_group(group, document["filename"]),
                         }
                     ],
-                    max_output_tokens=self.settings.source_digest_max_output_tokens,
-                    reasoning_effort="medium",
+                    max_output_tokens=self._scaled_tokens(
+                        self.settings.source_digest_max_output_tokens,
+                        source_token_multiplier * digest_profile["digest_token_multiplier"],
+                    ),
+                    reasoning_effort=digest_profile["reasoning_effort"],
                     verbosity="high",
+                    model=digest_profile["model"],
+                    stream_idle_timeout=self._scaled_timeout(
+                        adapter.config.stream_idle_timeout,
+                        source_timeout_multiplier * digest_profile["digest_timeout_multiplier"],
+                    ),
                 )
-                async with asyncio.timeout(self.settings.digest_section_timeout):
+                async with asyncio.timeout(
+                    self._scaled_timeout(
+                        self.settings.digest_section_timeout,
+                        source_timeout_multiplier * digest_profile["digest_timeout_multiplier"],
+                    )
+                ):
                     section_digests.append(await adapter.generate(request))
             self.db.update_job(job_id, progress=0.8, detail="Creating document synthesis")
             synthesis_input = join_with_budget(
@@ -1157,11 +1368,24 @@ Source summaries:
                         + synthesis_input,
                     }
                 ],
-                max_output_tokens=self.settings.source_digest_max_output_tokens,
-                reasoning_effort="medium",
+                max_output_tokens=self._scaled_tokens(
+                    self.settings.source_digest_max_output_tokens,
+                    source_token_multiplier * digest_profile["digest_token_multiplier"],
+                ),
+                reasoning_effort=digest_profile["reasoning_effort"],
                 verbosity="high",
+                model=digest_profile["model"],
+                stream_idle_timeout=self._scaled_timeout(
+                    adapter.config.stream_idle_timeout,
+                    source_timeout_multiplier * digest_profile["digest_timeout_multiplier"],
+                ),
             )
-            async with asyncio.timeout(self.settings.digest_job_timeout):
+            async with asyncio.timeout(
+                self._scaled_timeout(
+                    self.settings.digest_job_timeout,
+                    source_timeout_multiplier * digest_profile["digest_timeout_multiplier"],
+                )
+            ):
                 digest = await adapter.generate(synthesis_request)
             self.db.update_document(document_id, status="ready", digest=digest)
             self.db.update_job(job_id, status="complete", progress=1.0, detail="Document ready")

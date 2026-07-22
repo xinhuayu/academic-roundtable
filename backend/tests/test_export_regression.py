@@ -13,6 +13,9 @@ class _NoopService:
     async def cancel_session_background_tasks(self, *_args: object) -> int:
         return 0
 
+    async def cancel_final_summary(self, *_args: object) -> bool:
+        return False
+
 
 def make_test_client(db: Database, monkeypatch) -> TestClient:
     monkeypatch.setattr(main_module, "database", db)
@@ -51,9 +54,51 @@ def test_markdown_export_includes_one_page_summary_block_and_missing_summary_blo
     assert missing.status_code == 409
 
     db.add_summary_digest(session["id"], "one_page", 2, {"content": "Actionable learning: clarify assumptions and test robustness."})
+    db.add_summary_digest(session["id"], "one_page", 3, {"content": "Latest learning summary: verify the decisive assumption."})
     markdown = client.get(f"/api/sessions/{session['id']}/export?format=markdown").text
     assert "## One-page learning summary" in markdown
-    assert "Actionable learning" in markdown
+    assert "Latest learning summary" in markdown
+    latest = client.get(f"/api/sessions/{session['id']}/export?format=one_page_summary")
+    assert "Latest learning summary" in latest.text
+    assert "Actionable learning" not in latest.text
+
+
+def test_summary_digest_export_combines_final_source_and_digest_history(tmp_path, monkeypatch) -> None:
+    db = Database(tmp_path / "summary-digest-export.sqlite3")
+    db.initialize()
+    session = db.create_session("Trajectory evidence", "Retain the learning progression", 2, False, False)
+    db.add_summary_digest(
+        session["id"],
+        "periodic",
+        2,
+        {"active_question": "Are the reported groups causal types?", "agreements": ["No"]},
+    )
+    db.add_summary_digest(
+        session["id"],
+        "final",
+        2,
+        {"status": "final", "visible_recap": "A durable methodological synthesis."},
+    )
+    db.add_message(
+        session["id"],
+        "System",
+        "## Executive synthesis\nThe groups are descriptive model assignments, not established biological classes.",
+        metadata={"kind": "final_summary"},
+    )
+    db.update_session(session["id"], state="CLOSED")
+
+    client = make_test_client(db, monkeypatch)
+    response = client.get(f"/api/sessions/{session['id']}/export?format=summary_digest")
+
+    assert response.status_code == 200
+    assert response.headers["content-disposition"].startswith(
+        f'attachment; filename="roundtable-{session["id"]}-summary-digest.md"'
+    )
+    assert "# Summary Digest: Trajectory evidence" in response.text
+    assert "## Comprehensive final synthesis" in response.text
+    assert "descriptive model assignments" in response.text
+    assert "## Complete Digest History" in response.text
+    assert "Are the reported groups causal types?" in response.text
 
 
 def test_create_session_force_reset_clears_existing_active_sessions(tmp_path, monkeypatch) -> None:
@@ -115,3 +160,63 @@ def test_create_session_requires_force_reset_if_any_old_session_is_non_closed(tm
         },
     )
     assert without_reset.status_code == 409
+
+
+def test_create_session_requires_force_reset_for_closed_prior_session(tmp_path, monkeypatch) -> None:
+    db = Database(tmp_path / "export-create-session-closed-regression.sqlite3")
+    db.initialize()
+    prior = db.create_session("Closed record", "Must be purged before replacement", 2, False, False)
+    db.update_session(prior["id"], state="CLOSED")
+    client = make_test_client(db, monkeypatch)
+
+    blocked = client.post(
+        "/api/sessions",
+        json={
+            "topic": "Replacement",
+            "learning_goal": "Verify strict one-session retention",
+            "rounds_per_segment": 2,
+            "sources_only": False,
+            "periodic_summary": False,
+            "force_reset": False,
+        },
+    )
+    assert blocked.status_code == 409
+
+    replacement = client.post(
+        "/api/sessions",
+        json={
+            "topic": "Replacement",
+            "learning_goal": "Verify strict one-session retention",
+            "rounds_per_segment": 2,
+            "sources_only": False,
+            "periodic_summary": False,
+            "force_reset": True,
+        },
+    )
+    assert replacement.status_code == 201
+    assert len(db.list_sessions()) == 1
+    assert db.list_sessions()[0]["id"] == replacement.json()["id"]
+
+
+def test_closed_session_rejects_recap_and_upload_and_active_cancel_is_guarded(tmp_path, monkeypatch) -> None:
+    db = Database(tmp_path / "closed-session-boundaries.sqlite3")
+    db.initialize()
+    session = db.create_session("Lifecycle", "Keep the final record immutable", 2, False, False)
+    client = make_test_client(db, monkeypatch)
+
+    active_cancel = client.post(f"/api/sessions/{session['id']}/final-summary/cancel")
+    assert active_cancel.status_code == 409
+    assert db.get_session(session["id"])["state"] == "HUMAN_FLOOR"
+
+    db.update_session(session["id"], state="CLOSED")
+    recap = client.post(f"/api/sessions/{session['id']}/recap", json={})
+    upload = client.post(
+        f"/api/sessions/{session['id']}/documents",
+        files={"file": ("late-source.txt", b"late evidence", "text/plain")},
+    )
+    closed_cancel = client.post(f"/api/sessions/{session['id']}/final-summary/cancel")
+
+    assert recap.status_code == 409
+    assert upload.status_code == 409
+    assert closed_cancel.status_code == 200
+    assert closed_cancel.json()["state"] == "CLOSED"

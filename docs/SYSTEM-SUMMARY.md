@@ -28,12 +28,13 @@ Depth here means intellectual progress—not long answers. Each AI turn should b
 6. **Evidence provenance matters.** Source evidence, model background knowledge, inference, and speculation must remain distinguishable.
 7. **Documents are evidence, not instructions.** Uploaded text cannot override system behavior or Sam's authority.
 8. **Digestion stays off the live path.** Source and summary tasks receive larger budgets and run as background jobs.
-9. **Controlled replacement.** If any prior session remains non-closed, a new table requires reset confirmation; reset creates a clean environment by purging prior session content and uploads after a warning so learning sessions stay independent.
-10. **Lean before scalable.** The first release is a single-user local system; production infrastructure is deferred until the learning experience is validated.
+9. **Depth is selectable.** Fast discussion is the low-latency baseline; Research and Verification profiles selectively use flagship models, higher reasoning, larger allowances, and longer deadlines for mathematically or statistically demanding work.
+10. **Controlled replacement.** If any prior session remains non-closed, a new table requires reset confirmation; reset creates a clean environment by purging prior session content and uploads after a warning so learning sessions stay independent.
+11. **Lean before scalable.** The first release is a single-user local system; production infrastructure is deferred until the learning experience is validated.
 
 ## Participant model
 
-- **Momo** emphasizes critique, alternatives, methods, uncertainty, and produces the retained digests through the OpenAI provider.
+- **Momo** critically audits Bobby's and Sam's substantive claims for necessary assumptions, evidentiary sufficiency, scope, causal interpretation, boundary conditions, and alternative explanations. She preserves the defensible core, supplies the precise qualification when a claim exceeds the evidence, and identifies one decisive test or evidence need. Momo also produces the retained digests through the OpenAI provider.
 - **Bobby** develops the strongest defensible case through mechanisms, conceptual distinctions, evidence needs, and constructive hypotheses.
 - **Sam** supplies the topic and scientific direction, participates in debate, requests recaps, and decides when the session ends.
 - **Conversation controller** schedules turns, assembles context, maintains lifecycle state, and coordinates background work. It is not a visible fourth participant.
@@ -42,7 +43,7 @@ The roles are tendencies, not authority rankings. Both AIs must respond directly
 
 ## User experience
 
-The opening screen collects the topic, learning goal, segment length, evidence policy, and optional documents. After creation, Momo and Bobby each give one short greeting and wait. Greetings are excluded from scientific context and digests. Sam's first substantive message begins the academic discussion.
+The opening screen collects the topic, learning goal, segment length, evidence policy, optional PDF/TXT/Markdown documents, and an explicit AI LLM mode button choice. Selected documents remain staged locally until Sam clicks Start; after the clean session is created, uploads are immediately queued for background digestion while Momo and Bobby's short greetings are already visible. The same upload panel remains available during conversation. Greetings are excluded from scientific context and digests. Sam's first substantive message begins the academic discussion.
 
 During a session:
 
@@ -54,9 +55,10 @@ During a session:
 - An AI can ask Sam one focused question at a scheduled checkpoint; Sam can answer, redirect, or click **Let them continue**.
 - Interrupt stops the active segment without hiding already streamed partial text. Sam may then speak or continue for more rounds.
 - Recaps can be requested in natural language or from the interface and appear below the transcript.
+- The conversation header keeps a visible **AI LLM mode** button group for Fast, Research, and Verification. Sam can change it between segments for a specific discussion point; it is disabled during streaming and applies to the next segment.
 - The header **End** action or closing language interrupts generation, creates one brief AI farewell, and opens the download handoff. A highlighted blue live-status panel distinguishes “Summarizing the session materials……” from “Generating the one-page summary……” and displays the active job detail. Final-summary generation can be cancelled without losing transcript or digest downloads. After completion, the save/download row appears before the optional **Evaluate learning** control.
 
-The transcript uses a fixed-height rolling viewport. New streamed content scrolls inside that viewport rather than moving the whole page, keeping Sam's composer accessible. When Sam has the floor, both the composer and the top-right floor indicator are highlighted.
+The transcript uses a fixed-height rolling viewport. New streamed content scrolls inside that viewport rather than moving the whole page, keeping Sam's composer accessible. When an AI segment returns the floor, a post-layout scroll correction places the latest completed contribution at the bottom of the transcript before focusing Sam's composer. When Sam has the floor, both the composer and the top-right floor indicator are highlighted.
 
 Active Topic Digest and Conversation Digest jobs appear as compact temporary **System** cards inside the transcript (“Topic summarizing…” or “Conversation summarizing…”). These cards are derived only from the current frontend job list: they are not posted as messages, do not enter recent-round context or digest history, are absent from exports, and disappear automatically when the job completes or fails.
 
@@ -91,7 +93,9 @@ The default template keeps Momo on OpenAI and connects Bobby to Gemini 3.1 Flash
 Adapters also support Anthropic Messages for Bobby as an alternative path (`anthropic_messages`) when configured.
 Each adapter forwards task settings and reports provider failures per participant.
 
-Reasoning, output allowances, and timeouts are task-aware. Live turns default to low reasoning and target 60-110 visible words. Momo uses an 800-token base live allowance and Bobby uses 1,400; a 50% live-token and live-timeout multiplier applies during rounds. Momo's OpenAI adapter handles source, topic, conversation, and final digests by default; these requests and learning evaluation explicitly use medium reasoning. A Chat Completions `finish_reason` of `length` is persisted as interrupted, reported to Sam, and stops the segment before the next AI speaks. Connection, first-token, stream-read, and total-turn deadlines are independently configurable per participant. The Gemini template allows 60 seconds for first output or an idle stream and 240 seconds for a complete live turn. Background section and whole-job deadlines are configured separately at 300 and 900 seconds. Sam's interrupt still cancels the active stream task immediately, retaining any partial response already received.
+Reasoning, output allowances, and timeouts are task-aware. Fast live turns default to low reasoning and target 60-110 visible words. Momo uses an 800-token base live allowance and Bobby uses 1,400; the existing 50% Fast multiplier applies during rounds. Research mode defaults to GPT-5.6 Sol and Gemini 3.1 Pro Preview with medium reasoning, 2× live token/time multipliers, and 1.5× background digest deadlines. Verification mode uses the same flagship pair with high reasoning, 2× live token and 2.5× live timeout multipliers, and 2× background digest deadlines. An explicit Sam request to check the original source automatically selects Verification for that segment, but raw excerpts remain gated by that request. A Chat Completions `finish_reason` of `length` is persisted as interrupted, reported to Sam, and stops the segment before the next AI speaks. Connection, first-token, stream-read, and total-turn deadlines are independently configurable per participant. Background section and whole-job deadlines remain configurable through environment settings. Sam's interrupt still cancels the active stream task immediately, retaining any partial response already received.
+
+The session stores `conversation_profile` (`fast`, `research`, or `verification`). Sam chooses it on the landing page or changes it from the session evidence/settings panel. The API exposes the profile catalog through `/api/meta`. Per-request model overrides keep provider credentials and endpoint configuration unchanged. Larger output allowances are upper bounds; the academic prompt still requires concise visible turns. Numerical claims should be checked with a deterministic calculator or Python/R step in a future tool layer.
 
 Returning the floor to Sam requires a complete final question explicitly addressed to Sam. A direct statement beginning with Sam's name, an incomplete question, or an earlier question followed by further analysis does not prematurely stop the AI segment.
 
@@ -133,8 +137,8 @@ Each prompt section also has an explicit input ceiling. Oversized material is vi
 - Without sources, the Topic Digest develops after several substantive exchanges.
 - A Conversation Digest is scheduled every configured five or six completed rounds; Sam's interruptions do not reset that counter.
 - Natural-language requests such as “summarize so far” or “let's recap” create an immediate visible digest.
-- The final summary draws on the complete digest history plus the most recent substantive turns.
-- Source, topic, conversation, and final-summary tasks have larger output budgets than live dialogue.
+- The final Summary Digest draws on the complete digest history plus the most recent substantive turns. Momo's dedicated comprehensive-summary skill preserves intellectual progression, attribution, source/model/inference provenance, methods, uncertainty, Sam's learning direction, and research priorities without reproducing the transcript.
+- Source, topic, conversation, and final-summary tasks have larger output budgets than live dialogue. Final synthesis has a separate 6,000-token base allowance and inherits source/profile scaling and background-job deadlines.
 
 ## Lifecycle and logic flow
 
@@ -149,11 +153,11 @@ stateDiagram-v2
     AI_SEGMENT_RUNNING --> CLOSING: Sam concludes during streaming
     CLOSING --> CLOSED: summary completes, fails safely, or Sam cancels it
     CLOSED --> [*]: downloads offered; next session may purge the record
-
-`New roundtable` on the landing page now performs a fresh session-list check immediately before creating a new session; if any prior local sessions exist, the UI prompts for confirmation and only proceeds with `force_reset=true`.
 ```
 
-Closeout is coordinated with the active generation lock so interrupted text is persisted before the final summary snapshots history. Streaming cleanup cannot overwrite `CLOSING` or `CLOSED`. Sam may cancel summary work; the session then closes with its transcript and existing digests intact. At `CLOSED`, Sam may also download a separate one-page Momo-authored learning summary that includes key concepts, main issues, strategies, and research priorities. Sam may save a learning evaluation included in every export. Downloading, reviewing, and evaluating are optional: when warned about unsaved data, Sam can select **No, start new roundtable** to purge the old session and its evaluation and proceed immediately.
+`New roundtable` on the landing page now performs a fresh session-list check immediately before creating a new session; if any prior local sessions exist, the UI prompts for confirmation and only proceeds with `force_reset=true`.
+
+Closeout is coordinated with the active generation lock so interrupted text is persisted before the final summary snapshots history. Streaming cleanup cannot overwrite `CLOSING` or `CLOSED`. Sam may cancel summary work; the session then closes with its transcript and existing digests intact. At `CLOSED`, Sam may download the comprehensive Summary Digest, a separate one-page Momo-authored learning summary, the readable transcript, or the complete archive. Sam may save a learning evaluation included in every export. Downloading, reviewing, and evaluating are optional: when warned about unsaved data, Sam can select **No, start new roundtable** to purge the old session and its evaluation and proceed immediately.
 
 ## Functions and features
 
@@ -175,7 +179,7 @@ Closeout is coordinated with the active generation lock so interrupted text is p
 - Provider health and background-job progress
 - Ephemeral, non-persistent System transcript cards for topic/conversation digestion
 - Blue closeout progress notices for final and one-page summary stages
-- Complete Markdown, JSON, and ZIP exports after closure
+- Readable transcript, comprehensive Summary Digest, one-page summary, structured JSON API export, and complete ZIP archive after closure
 - Built-in closeout learning evaluation with automated diagnostics, Sam's evidence-backed rubric, and export inclusion
 - Save/download controls precede the optional learning-evaluation action on closeout
 - Momo-authored one-page closeout summary generated with the finalization lock and downloadable independently
@@ -212,9 +216,9 @@ This is still a local MVP, not an internet-facing secure service. Authentication
 
 As of the latest verification run:
 
-- 46 backend tests pass.
-- The test suite covers rounds, recent-history retention, mention routing, greeting exclusion, digest history, FTS locators, single-session purging, host-deferred continuation, first-token timeout recovery, immediate stalled-stream cancellation with partial-text retention, restart reconciliation, session-task cancellation, bounded prompt context, close/interrupt lifecycle safety, and final-summary cancellation.
-- Frontend type-check and production-build verification is part of the release checklist.
+- 51 backend tests pass.
+- The suite covers rounds, recent-history retention, mention routing, greeting exclusion, digest history and latest Summary Digest export, FTS locators, strict one-session purging, host-deferred continuation, recap-job deduplication, first-token timeout recovery, immediate stalled-stream cancellation with partial-text retention, restart reconciliation, session-task cancellation, bounded prompt context, post-close immutability, close/interrupt lifecycle safety, and cancellation of both final and one-page summary work.
+- All 3 frontend tests, TypeScript type-checking, and the production build pass. Frontend coverage includes provenance formatting, ephemeral digest cards, and landing-page multi-source staging.
 - Live provider checks remain optional because they consume external API capacity. The 2026-07-21 approved live audit confirmed:
   - Momo: `gpt-5.6-luna` (OpenAI Responses), configured and reachable.
   - Bobby: `gemini-3.1-flash-lite` (Google OpenAI-compatible Chat Completions), configured and reachable.
@@ -235,5 +239,8 @@ As of the latest verification run:
 
 - Fixed source-digest context handling where parsed JSON digests (`dict`) were not string-safe during streaming context assembly.
 - Fixed `/api/documents/dependencies` return typing from fixed-`bool` to metadata-safe payload (`dict[str, bool | str | None]`) to avoid 500 validation errors.
+- Fixed lifecycle boundary cases: creation now requires explicit reset for any retained session; recap and source upload are read-only after closing; cancel-summary cannot close a live conversation; and cancellation marks both final-summary and one-page-summary jobs consistently.
+- Repeated recap requests now reuse an active Conversation Digest job, preventing duplicate model work. Closeout and direct one-page exports select the latest completed one-page digest.
+- Clarified source privacy: managed files remain local, but extracted sections are sent to the configured model server for digestion; ordinary turns use only the processed digest unless Sam explicitly requests source verification.
 
 See [LEARNING-QUALITY-EVALUATION.md](LEARNING-QUALITY-EVALUATION.md) for the evaluation harness and pilot process, [CRITICAL-REVIEW.md](CRITICAL-REVIEW.md) for the prioritized agent-system review, [INDEPENDENT-AUDIT.md](INDEPENDENT-AUDIT.md) for the broader audit, and [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md) for the next agile increments.

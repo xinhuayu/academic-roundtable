@@ -2,7 +2,7 @@ import type { DocumentDependencies, EvaluationRatings, LearningEvaluationBundle,
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
-export const exportUrl = (sessionId: string, format: "markdown" | "json" | "archive" | "one_page_summary" = "markdown") =>
+export const exportUrl = (sessionId: string, format: "markdown" | "json" | "archive" | "one_page_summary" | "summary_digest" = "markdown") =>
   `${API_BASE}/api/sessions/${sessionId}/export?format=${format}`;
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -36,6 +36,7 @@ export const api = {
     rounds_per_segment: number;
     sources_only: boolean;
     periodic_summary: boolean;
+    conversation_profile: "fast" | "research" | "verification";
     force_reset: boolean;
   }) => request<Session>("/api/sessions", { method: "POST", body: JSON.stringify(payload) }),
   updateSession: (id: string, payload: Record<string, unknown>) =>

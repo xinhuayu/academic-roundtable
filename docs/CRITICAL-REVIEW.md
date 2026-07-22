@@ -52,7 +52,7 @@ At application startup, abandoned queued/running jobs, processing documents, act
 
 Every live request includes the Topic Digest, latest Conversation Digest, active question, the five most recent complete rounds, and any processed document digest, with hard character budgets for each section and the combined history. Ordinary rounds do not resend raw passages. Only Sam's explicit request to check or verify the original source activates one-segment retrieval; those excerpts are labeled as untrusted evidence so document text cannot masquerade as system instruction. Clipping is visible in the prompt and never deletes stored data.
 
-Character ceilings are a pragmatic MVP control. A later provider-capability layer should estimate tokens per model and reserve output capacity precisely.
+Character ceilings are a pragmatic MVP control. Selective Fast/Research/Verification profiles now provide model-aware budget and timeout multipliers; a later provider-capability layer should estimate tokens per model and reserve output capacity precisely.
 
 ## Architecture critique
 
@@ -74,7 +74,7 @@ Create 10–15 representative fixtures covering definitions, theory comparison, 
 - Add per-provider cooldown/circuit state and structured error identifiers.
 - Reserve concurrency for live dialogue so source digestion cannot delay Sam.
 - Record timing by phase: queue, connection, first token, stream, and persistence.
-- Add model capability metadata and token-aware context allocation.
+- Add richer model capability metadata and token-aware context allocation. The first profile layer is now implemented; deterministic calculator/Python/R verification remains future work for mathematical claims.
 
 ### Then: document and retrieval hardening
 
@@ -89,7 +89,7 @@ Add authentication, authorization, per-user data isolation, durable migrations, 
 
 ## Verification recommendations
 
-The deterministic suite now covers immediate stalled-stream cancellation, partial text retention, startup reconciliation, cancellation of session-owned background work, bounded context assembly, timeout recovery, lifecycle races, summaries, retrieval locators, routing, and retention. Add API-level integration tests for close/discard conflicts and frontend tests for closeout confirmation and accessibility. Live-provider smoke tests should remain opt-in because they consume capacity and are nondeterministic.
+The deterministic suite now covers immediate stalled-stream cancellation, partial text retention, startup reconciliation, cancellation of session-owned background work, bounded context assembly, timeout recovery, lifecycle races, strict retention, post-close immutability, summary cancellation, latest-summary export selection, recap deduplication, retrieval locators, and routing. Add frontend interaction tests for closeout confirmation and accessibility. Live-provider smoke tests should remain opt-in because they consume capacity and are nondeterministic.
 
 ## Lean decision rule
 

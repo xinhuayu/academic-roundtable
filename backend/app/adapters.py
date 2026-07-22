@@ -26,6 +26,8 @@ class GenerationRequest:
     max_output_tokens: int
     reasoning_effort: str | None = None
     verbosity: str = "medium"
+    model: str | None = None
+    stream_idle_timeout: float | None = None
 
 
 class LLMAdapter:
@@ -120,9 +122,17 @@ class LLMAdapter:
             chunks.append(chunk)
         return "".join(chunks).strip()
 
+    def _request_timeout(self, request: GenerationRequest) -> httpx.Timeout:
+        return httpx.Timeout(
+            connect=self.config.connect_timeout,
+            read=request.stream_idle_timeout or self.config.stream_idle_timeout,
+            write=30.0,
+            pool=10.0,
+        )
+
     async def _stream_responses(self, request: GenerationRequest) -> AsyncIterator[str]:
         body: dict[str, Any] = {
-            "model": self.config.model,
+            "model": request.model or self.config.model,
             "instructions": request.system,
             "input": request.messages,
             "stream": True,
@@ -133,7 +143,9 @@ class LLMAdapter:
         if effort:
             body["reasoning"] = {"effort": effort}
         try:
-            async with self.client.stream("POST", "/responses", json=body) as response:
+            async with self.client.stream(
+                "POST", "/responses", json=body, timeout=self._request_timeout(request)
+            ) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
@@ -174,7 +186,7 @@ class LLMAdapter:
 
     async def _stream_chat_completions(self, request: GenerationRequest) -> AsyncIterator[str]:
         body = {
-            "model": self.config.model,
+            "model": request.model or self.config.model,
             "messages": [{"role": "system", "content": request.system}, *request.messages],
             "stream": True,
             "max_tokens": request.max_output_tokens,
@@ -186,7 +198,9 @@ class LLMAdapter:
             body["reasoning_effort"] = effort
         try:
             finish_reason: str | None = None
-            async with self.client.stream("POST", "/chat/completions", json=body) as response:
+            async with self.client.stream(
+                "POST", "/chat/completions", json=body, timeout=self._request_timeout(request)
+            ) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
@@ -238,7 +252,7 @@ class LLMAdapter:
 
     async def _stream_anthropic_messages(self, request: GenerationRequest) -> AsyncIterator[str]:
         body = {
-            "model": self.config.model,
+            "model": request.model or self.config.model,
             "system": request.system,
             "messages": request.messages,
             "max_tokens": request.max_output_tokens,
@@ -246,7 +260,9 @@ class LLMAdapter:
         }
         finish_reason: str | None = None
         try:
-            async with self.client.stream("POST", "/messages", json=body) as response:
+            async with self.client.stream(
+                "POST", "/messages", json=body, timeout=self._request_timeout(request)
+            ) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
