@@ -5,6 +5,7 @@ import json
 import re
 import secrets
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -573,6 +574,7 @@ class RoundtableService:
         invite_host: bool = False,
         sam_deferred: bool = False,
         source_verification: bool = False,
+        timeout_handoff_from: str | None = None,
     ) -> GenerationRequest:
         recent = self.db.recent_round_messages(session["id"], self.settings.recent_round_count)
         profile = self._profile_parameters(
@@ -614,6 +616,13 @@ class RoundtableService:
             if latest_message and latest_message[0]["speaker"] == "Sam"
             else "Respond directly to the most recent substantive claim."
         )
+        if timeout_handoff_from:
+            response_priority = (
+                f"{timeout_handoff_from} timed out after one retry and produced no retained contribution. "
+                "Take over the current turn now. Address Sam's latest question or the active question directly, "
+                "using only the retained topic digest, conversation digest, and recent completed discussion. "
+                f"Do not claim to know what {timeout_handoff_from} attempted to say."
+            )
         host_instruction = (
             "This is a human checkpoint. End by asking Sam one short, specific question that requires judgment, interpretation, or a choice of direction."
             if invite_host
@@ -815,18 +824,23 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                             for turn_index, speaker in enumerate(order)
                         }
                     round_complete = True
+                    timeout_handoff_from: str | None = None
+                    timeout_handoff_used = False
                     for turn_index, speaker in enumerate(order):
                         if cancel_event.is_set():
                             round_complete = False
                             break
                         current = self.db.get_session(session_id)
-                        request = prepared_requests.get(speaker) or self.build_context(
+                        request = (
+                            None if timeout_handoff_from else prepared_requests.get(speaker)
+                        ) or self.build_context(
                             current,
                             speaker,
                             segment_round * 2 + turn_index,
                             invite_host=host_checkpoint_due and turn_index == 1,
                             sam_deferred=continue_without_sam and segment_round == 0,
                             source_verification=source_verification,
+                            timeout_handoff_from=timeout_handoff_from,
                         )
                         turn_profile = self._profile_parameters(
                             current, speaker, source_verification=source_verification, task="live"
@@ -836,6 +850,7 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                             "model": turn_profile["model"],
                             "reasoning_effort": turn_profile["reasoning_effort"],
                             "source_verification": source_verification,
+                            "timeout_handoff_from": timeout_handoff_from,
                         }
                         per_turn_timeout = self._turn_timeout_multiplier(
                             session_id,
@@ -852,60 +867,132 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                             "reasoning_effort": turn_profile["reasoning_effort"],
                         }
                         chunks: list[str] = []
+                        timeout_retries = 0
                         try:
                             adapter = self.adapters.get(speaker)
-                            async with asyncio.timeout(
-                                self._scaled_timeout(
-                                    adapter.config.total_timeout,
-                                    per_turn_timeout,
+                            while True:
+                                attempt_multiplier = (
+                                    self.settings.live_timeout_retry_multiplier
+                                    if timeout_retries
+                                    else 1.0
                                 )
-                            ):
-                                stream = adapter.stream(request).__aiter__()
+                                attempt_timeout = per_turn_timeout * attempt_multiplier
+                                attempt_request = replace(
+                                    request,
+                                    stream_idle_timeout=self._scaled_timeout(
+                                        adapter.config.stream_idle_timeout,
+                                        attempt_timeout,
+                                    ),
+                                )
+                                chunks = []
                                 try:
                                     async with asyncio.timeout(
                                         self._scaled_timeout(
-                                            adapter.config.first_token_timeout,
-                                            per_turn_timeout,
-                                            minimum=0.0,
+                                            adapter.config.total_timeout,
+                                            attempt_timeout,
                                         )
                                     ):
-                                        first_delta = await anext(stream)
-                                except TimeoutError as exc:
-                                    raise ProviderError(
-                                        speaker,
-                                        "first_token_timeout",
-                                        f"{speaker} did not begin responding before the first-token deadline",
-                                        retryable=True,
-                                    ) from exc
-                                except StopAsyncIteration as exc:
-                                    raise ProviderError(
-                                        speaker,
-                                        "empty_response",
-                                        "Provider completed without visible output",
-                                        retryable=True,
-                                    ) from exc
-                                if not cancel_event.is_set():
-                                    chunks.append(first_delta)
-                                    yield {"type": "delta", "speaker": speaker, "text": first_delta}
-                                while True:
-                                    if cancel_event.is_set():
-                                        round_complete = False
-                                        break
-                                    try:
-                                        async with asyncio.timeout(
-                                            self._scaled_timeout(
-                                                adapter.config.stream_idle_timeout,
-                                                per_turn_timeout,
-                                            )
-                                        ):
-                                            delta = await anext(stream)
-                                    except StopAsyncIteration:
-                                        break
-                                    chunks.append(delta)
-                                    yield {"type": "delta", "speaker": speaker, "text": delta}
+                                        stream = adapter.stream(attempt_request).__aiter__()
+                                        try:
+                                            async with asyncio.timeout(
+                                                self._scaled_timeout(
+                                                    adapter.config.first_token_timeout,
+                                                    attempt_timeout,
+                                                    minimum=0.0,
+                                                )
+                                            ):
+                                                first_delta = await anext(stream)
+                                        except TimeoutError as exc:
+                                            raise ProviderError(
+                                                speaker,
+                                                "first_token_timeout",
+                                                f"{speaker} did not begin responding before the first-token deadline",
+                                                retryable=True,
+                                            ) from exc
+                                        except StopAsyncIteration as exc:
+                                            raise ProviderError(
+                                                speaker,
+                                                "empty_response",
+                                                "Provider completed without visible output",
+                                                retryable=True,
+                                            ) from exc
+                                        if not cancel_event.is_set():
+                                            chunks.append(first_delta)
+                                            yield {"type": "delta", "speaker": speaker, "text": first_delta}
+                                        while True:
+                                            if cancel_event.is_set():
+                                                round_complete = False
+                                                break
+                                            try:
+                                                async with asyncio.timeout(
+                                                    self._scaled_timeout(
+                                                        adapter.config.stream_idle_timeout,
+                                                        attempt_timeout,
+                                                    )
+                                                ):
+                                                    delta = await anext(stream)
+                                            except StopAsyncIteration:
+                                                break
+                                            chunks.append(delta)
+                                            yield {"type": "delta", "speaker": speaker, "text": delta}
+                                    break
+                                except (ProviderError, TimeoutError) as exc:
+                                    timeout_failure = isinstance(exc, TimeoutError) or (
+                                        isinstance(exc, ProviderError)
+                                        and exc.kind in {"timeout", "first_token_timeout"}
+                                    )
+                                    if (
+                                        timeout_failure
+                                        and timeout_retries < self.settings.live_timeout_retry_attempts
+                                        and not cancel_event.is_set()
+                                    ):
+                                        timeout_retries += 1
+                                        yield {
+                                            "type": "system_notice",
+                                            "speaker": "System",
+                                            "participant": speaker,
+                                            "notice_id": f"retry-{round_row['id']}-{speaker}",
+                                            "text": f"{speaker} took too long to respond. Retrying once with a longer timeout…",
+                                            "status": "retrying",
+                                            "temporary": True,
+                                        }
+                                        yield {
+                                            "type": "retry_reset",
+                                            "speaker": speaker,
+                                        }
+                                        continue
+                                    raise
                         except (ProviderError, TimeoutError) as exc:
                             message = str(exc) if isinstance(exc, ProviderError) else "Total turn timeout exceeded"
                             partial = "".join(chunks).strip()
+                            timeout_exhausted = isinstance(exc, TimeoutError) or (
+                                isinstance(exc, ProviderError)
+                                and exc.kind in {"timeout", "first_token_timeout"}
+                            )
+                            fallback_speaker = "Bobby" if speaker == "Momo" else "Momo"
+                            if timeout_exhausted and not timeout_handoff_used and not cancel_event.is_set():
+                                timeout_handoff_used = True
+                                timeout_handoff_from = speaker
+                                if turn_index + 1 >= len(order) or order[turn_index + 1] != fallback_speaker:
+                                    order.append(fallback_speaker)
+                                yield {
+                                    "type": "system_notice",
+                                    "speaker": "System",
+                                    "participant": fallback_speaker,
+                                    "notice_id": f"retry-{round_row['id']}-{speaker}",
+                                    "text": (
+                                        f"{speaker} is still unavailable after retry. "
+                                        f"{fallback_speaker} will pick up the conversation."
+                                    ),
+                                    "status": "handoff",
+                                    "temporary": True,
+                                }
+                                yield {
+                                    "type": "message_abandoned",
+                                    "speaker": speaker,
+                                    "reason": "timeout_handoff",
+                                }
+                                continue
                             if partial:
                                 self.db.add_message(
                                     session_id,
@@ -913,7 +1000,7 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                                     partial,
                                     round_id=round_row["id"],
                                     status="interrupted",
-                                    metadata=route_metadata,
+                                    metadata={**route_metadata, "timeout_retries": timeout_retries},
                                 )
                             yield {
                                 "type": "provider_error",
@@ -933,7 +1020,7 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                                     partial,
                                     round_id=round_row["id"],
                                     status="interrupted",
-                                    metadata=route_metadata,
+                                    metadata={**route_metadata, "timeout_retries": timeout_retries},
                                 )
                             cancel_event.set()
                             round_complete = False
@@ -959,6 +1046,7 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                             round_id=round_row["id"],
                             metadata={
                                 **route_metadata,
+                                "timeout_retries": timeout_retries,
                                 "academic_move": ACADEMIC_MOVES[
                                     (segment_round * 2 + turn_index) % len(ACADEMIC_MOVES)
                                 ],
@@ -966,6 +1054,7 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                             },
                         )
                         yield {"type": "message_complete", "message": message}
+                        timeout_handoff_from = None
                         if is_host_invitation(content[-1000:]):
                             stop_for_host = True
                             if turn_index < len(order) - 1:

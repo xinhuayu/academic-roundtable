@@ -145,4 +145,8 @@ export interface StreamEvent {
   profile?: ConversationProfile;
   model?: string;
   reasoning_effort?: string;
+  participant?: "Momo" | "Bobby";
+  notice_id?: string;
+  status?: string;
+  temporary?: boolean;
 }

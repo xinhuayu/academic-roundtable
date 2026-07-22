@@ -203,7 +203,9 @@ export function FormattedMessageContent({ text, breakSamQuestions = false }: { t
 
 export function TranscriptMessage({ message }: { message: Message }) {
   const meta = speakerMeta[message.speaker] ?? speakerMeta.System;
-  const ephemeralSystem = message.metadata.kind === "ephemeral_digest_status";
+  const ephemeralKind = String(message.metadata.kind || "");
+  const ephemeralSystem = ephemeralKind === "ephemeral_digest_status" || ephemeralKind === "ephemeral_retry_status";
+  const systemSubtitle = ephemeralKind === "ephemeral_retry_status" ? "automatic retry" : "background task";
   const model = typeof message.metadata.model === "string" ? message.metadata.model : "";
   const profile = typeof message.metadata.profile === "string" ? message.metadata.profile : "";
   const reasoning = typeof message.metadata.reasoning_effort === "string" ? message.metadata.reasoning_effort : "";
@@ -212,7 +214,7 @@ export function TranscriptMessage({ message }: { message: Message }) {
       <div className="avatar" aria-hidden="true">{meta.monogram}</div>
       <div className="message-body">
         <header>
-          <div><strong>{message.speaker}</strong><span>{ephemeralSystem ? "background task" : meta.subtitle}</span>{model && <span className="message-model-route">{model} · {profile || "fast"} · {reasoning || "default"} reasoning</span>}</div>
+          <div><strong>{message.speaker}</strong><span>{ephemeralSystem ? systemSubtitle : meta.subtitle}</span>{model && <span className="message-model-route">{model} · {profile || "fast"} · {reasoning || "default"} reasoning</span>}</div>
           {message.status !== "complete" && <Badge tone="warning">{message.status}</Badge>}
         </header>
         <div className="message-content">{message.content ? <FormattedMessageContent text={message.content} breakSamQuestions={message.speaker === "Momo" || message.speaker === "Bobby"} /> : <span className="thinking">thinking…</span>}</div>
@@ -559,7 +561,7 @@ function App() {
     await createSession(draft.topic, draft.goal, draft.profile, true, draft.sources);
   };
 
-  const handleStreamEvent = (event: StreamEvent, streamState: { tempId?: string }) => {
+  const handleStreamEvent = (event: StreamEvent, streamState: { tempId?: string; retryNoticeId?: string }) => {
     if (event.type === "round_start") setActiveRound(event.round_number ?? null);
     if (event.type === "message_start" && event.speaker) {
       if ((event.speaker === "Momo" || event.speaker === "Bobby") && event.profile && event.model) {
@@ -579,18 +581,66 @@ function App() {
     if (event.type === "delta" && streamState.tempId && event.text) {
       setSession((current) => current && ({ ...current, messages: current.messages.map((message) => message.id === streamState.tempId ? { ...message, content: message.content + event.text } : message) }));
     }
-    if (event.type === "message_complete" && streamState.tempId && event.message && typeof event.message !== "string") {
-      setSession((current) => current && ({ ...current, messages: current.messages.map((message) => message.id === streamState.tempId ? event.message as Message : message) }));
+    if (event.type === "system_notice" && event.text) {
+      const noticeId = event.notice_id || `retry-${Date.now()}`;
+      streamState.retryNoticeId = noticeId;
+      const notice: Message = {
+        id: noticeId,
+        speaker: "System",
+        content: event.text,
+        status: event.status || "retrying",
+        target: "roundtable",
+        metadata: { kind: "ephemeral_retry_status", participant: event.participant },
+        created_at: new Date().toISOString(),
+        temporary: true,
+      };
+      setSession((current) => {
+        if (!current) return current;
+        const messages = current.messages.filter((message) => message.id !== noticeId);
+        const streamIndex = messages.findIndex((message) => message.id === streamState.tempId);
+        if (streamIndex >= 0) messages.splice(streamIndex, 0, notice);
+        else messages.push(notice);
+        return { ...current, messages };
+      });
+    }
+    if (event.type === "retry_reset" && streamState.tempId) {
+      setSession((current) => current && ({
+        ...current,
+        messages: current.messages.map((message) => message.id === streamState.tempId ? { ...message, content: "" } : message),
+      }));
+    }
+    if (event.type === "message_abandoned" && streamState.tempId) {
+      setSession((current) => current && ({
+        ...current,
+        messages: current.messages.filter((message) => message.id !== streamState.tempId),
+      }));
       streamState.tempId = undefined;
     }
-    if (event.type === "provider_error") setError(`${event.speaker}: ${event.message}`);
+    if (event.type === "message_complete" && streamState.tempId && event.message && typeof event.message !== "string") {
+      setSession((current) => current && ({
+        ...current,
+        messages: current.messages
+          .map((message) => message.id === streamState.tempId ? event.message as Message : message)
+          .filter((message) => message.id !== streamState.retryNoticeId),
+      }));
+      streamState.tempId = undefined;
+      streamState.retryNoticeId = undefined;
+    }
+    if (event.type === "provider_error") {
+      setSession((current) => current && ({
+        ...current,
+        messages: current.messages.filter((message) => message.id !== streamState.retryNoticeId),
+      }));
+      streamState.retryNoticeId = undefined;
+      setError(`${event.speaker}: ${event.message}`);
+    }
   };
 
   const startDiscussion = async (requestedRounds?: number, startingSpeaker?: "Momo" | "Bobby", continueWithoutSam = false) => {
     if (!session || busy) return;
     const segmentRounds = requestedRounds ?? chooseRoundCount();
     setBusy(true); setError("");
-    const streamState: { tempId?: string } = {};
+    const streamState: { tempId?: string; retryNoticeId?: string } = {};
     try {
       await api.streamSegment(session.id, segmentRounds, (event) => handleStreamEvent(event, streamState), startingSpeaker, continueWithoutSam);
       await refreshSession(session.id);

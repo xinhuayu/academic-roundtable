@@ -135,20 +135,22 @@ BOBBY_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
 BOBBY_MODEL=gemini-3.5-flash-lite
 BOBBY_API_STYLE=chat_completions
 BOBBY_API_KEY_ENV=GEMINI_API_KEY
-BOBBY_REASONING_EFFORT=low
+BOBBY_REASONING_EFFORT=minimal
 BOBBY_LIVE_MAX_OUTPUT_TOKENS=1400
 BOBBY_CONNECT_TIMEOUT_SECONDS=15
-BOBBY_FIRST_TOKEN_TIMEOUT_SECONDS=90
-BOBBY_STREAM_IDLE_TIMEOUT_SECONDS=90
-BOBBY_TOTAL_TIMEOUT_SECONDS=480
+BOBBY_FIRST_TOKEN_TIMEOUT_SECONDS=60
+BOBBY_STREAM_IDLE_TIMEOUT_SECONDS=60
+BOBBY_TOTAL_TIMEOUT_SECONDS=360
 
 # Gemini completion ceilings include hidden thinking plus visible text.
 GEMINI_FAST_MIN_OUTPUT_TOKENS=4096
 GEMINI_RESEARCH_MIN_OUTPUT_TOKENS=12288
 GEMINI_VERIFICATION_MIN_OUTPUT_TOKENS=32768
 GEMINI_MAX_OUTPUT_TOKENS=65536
-GEMINI_RESEARCH_TIMEOUT_MULTIPLIER=1.35
-GEMINI_VERIFICATION_TIMEOUT_MULTIPLIER=1.5
+GEMINI_RESEARCH_TIMEOUT_MULTIPLIER=2.0
+GEMINI_VERIFICATION_TIMEOUT_MULTIPLIER=2.25
+LIVE_TIMEOUT_RETRY_ATTEMPTS=1
+LIVE_TIMEOUT_RETRY_MULTIPLIER=1.5
 
 # Optional alternative for Bobby (disabled until selected)
 # BOBBY_BASE_URL=https://api.anthropic.com/v1
@@ -168,7 +170,7 @@ RESEARCH_LIVE_TIMEOUT_MULTIPLIER=2.5
 `MOMO_API_KEY_ENV` and `BOBBY_API_KEY_ENV` contain the **names** of environment variables, not the secrets themselves.
 Supported API styles are `responses`, `chat_completions`, and `anthropic_messages`.
 
-Reasoning is task-aware. Fast live turns use each participant's configured effort (`low` by default for speed); Research selects the configured flagship pair with medium reasoning; Verification selects the flagship pair with high reasoning and is also activated for an explicit request to check the original source. The UI keeps visible turns concise even when the model allowance grows. Source, topic, conversation, final-summary, and learning-evaluation requests use larger background budgets, with Research and Verification applying additional token and deadline multipliers. Responses and Chat Completions adapters forward model and reasoning overrides, and Anthropic Messages remains available for Bobby. Momo uses an 800-token base live allowance. Bobby retains a 1,400-token visible-response basis, but Gemini requests receive minimum completion ceilings of 4,096 / 12,288 / 32,768 for Fast / Research / Verification, capped at 65,536. Those ceilings reserve space for provider-hidden thinking and do not instruct Bobby to produce longer prose. Gemini Research and Verification also receive additional 1.35× and 1.5× deadline multipliers over the selected profile. A Chat Completions `finish_reason` of `length` is treated as an interrupted response rather than silent success, and the next AI does not continue from that fragment. Provider timeout variables govern live calls; background digest jobs use their separate section and job deadlines.
+Reasoning is task-aware. Fast Bobby uses Gemini's `minimal` effort for responsiveness; Research uses medium reasoning, while Verification uses high reasoning and is also activated for an explicit request to check the original source. The UI keeps visible turns concise even when the model allowance grows. Source, topic, conversation, final-summary, and learning-evaluation requests use larger background budgets. Momo uses an 800-token base live allowance. Bobby retains a 1,400-token visible-response basis, but Gemini requests receive minimum completion ceilings of 4,096 / 12,288 / 32,768 for Fast / Research / Verification, capped at 65,536. Those ceilings reserve space for provider-hidden thinking and do not instruct Bobby to produce longer prose. Fast has a 90-second effective first-token deadline and nine-minute total-turn ceiling; Research and Verification use approximately 300- and 338-second first-token deadlines with 30- and 33.75-minute total ceilings. A timeout triggers one automatic retry with a 1.5× retry-only deadline. The transcript immediately shows a temporary System retry notice, clears any incomplete visible attempt, and never saves that notice into history or digests. If the same AI times out again, the System card names the other AI, removes the failed draft, and instructs the other AI to take over from the retained context without claiming to know the missing answer. The floor returns to Sam only if that fallback participant also exhausts its retry. A Chat Completions `finish_reason` of `length` remains an interrupted response rather than silent success.
 
 The provider health endpoint reports each provider's configured Fast/base model. The conversation UI combines that health information with the selected profile catalog and live SSE route metadata, so its active labels show the model that is selected or actually used for the current segment. Each AI message also preserves the actual route in its stored metadata.
 
@@ -176,13 +178,13 @@ The provider health endpoint reports each provider's configured Fast/base model.
 
 The default `.env.example` includes separate model and reasoning settings for the profiles:
 
-- **Fast discussion:** current provider defaults, low reasoning, shortest latency.
-- **Research mode:** GPT-5.6 Sol for Momo and Gemini 3.6 Flash for Bobby by default, medium reasoning, 2.75× live token allowances and 2.5× live deadlines. Bobby additionally receives the 12,288-token Gemini completion floor and 1.35× Gemini latency margin. Each AI is asked for a focused 140–220-word contribution in two connected paragraphs, including the relevant inferential, methodological, statistical, mathematical, or theoretical detail.
-- **Verification mode:** GPT-5.6 Sol for Momo and Gemini 2.5 Pro for Bobby by default, high reasoning, approximately 2× live allowances and 2.5× live deadlines. Bobby additionally receives the 32,768-token Gemini completion floor and 1.5× Gemini latency margin. Raw PDF/document excerpts are still withheld unless Sam explicitly asks to check the original source.
+- **Fast discussion:** current provider defaults; Bobby uses minimal reasoning, the shortest initial deadline, and one timeout-only retry.
+- **Research mode:** GPT-5.6 Sol for Momo and Gemini 3.6 Flash for Bobby by default, medium reasoning, 2.75× live token allowances and 2.5× live deadlines. Bobby additionally receives the 12,288-token Gemini completion floor and 2× Gemini latency margin. Each AI is asked for a focused 140–220-word contribution in two connected paragraphs, including the relevant inferential, methodological, statistical, mathematical, or theoretical detail.
+- **Verification mode:** GPT-5.6 Sol for Momo and Gemini 2.5 Pro for Bobby by default, high reasoning, approximately 2× live allowances and 2.5× live deadlines. Bobby additionally receives the 32,768-token Gemini completion floor and 2.25× Gemini latency margin. Raw PDF/document excerpts are still withheld unless Sam explicitly asks to check the original source.
 
 The Bobby defaults deliberately separate workloads: Gemini 3.5 Flash-Lite favors interactive latency, Gemini 3.6 Flash provides the normal deep-research balance, and Gemini 2.5 Pro is reserved for slower source verification. Existing installations with explicit model variables keep those overrides; update or remove the three Bobby model variables to adopt this routing.
 
-Gemini thinking is not free or fully visible: thought tokens count toward billed output. The protected ceilings prevent premature truncation, while `reasoning_effort` remains the actual cost/latency control. Keep Fast on low, Research on medium, and use high Verification selectively.
+Gemini thinking is not free or fully visible: thought tokens count toward billed output. The protected ceilings prevent premature truncation, while `reasoning_effort` remains the actual cost/latency control. Keep Fast on minimal, Research on medium, and use high Verification selectively.
 
 Use Research or Verification for derivations, statistical model comparisons, sensitivity analysis, disputed claims, or source checks. For numerical work, add a calculator/Python/R verification step; model reasoning does not replace deterministic computation.
 
@@ -367,7 +369,7 @@ Before publishing the repository, run a secret scan over both the working tree a
 
 - Single local user and one retained session
 - No automatic restart/resume for interrupted background jobs
-- No provider retry or circuit-breaker layer
+- One timeout-only retry and cross-participant handoff are implemented; there is no general provider circuit breaker or durable retry queue
 - FTS5 lexical retrieval only
 - No OCR for scanned image-only PDFs
 - English-pattern detection for recap and closing intents

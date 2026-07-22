@@ -141,8 +141,9 @@ The prioritized rationale and postponed work are recorded in [CRITICAL-REVIEW.md
 
 - Added a persisted per-session `conversation_profile`: `fast`, `research`, or `verification`.
 - Fast remains the default and preserves the current low-latency provider models and concise live turns.
-- Research routes Momo to GPT-5.6 Sol and Bobby to Gemini 3.6 Flash by default, with medium reasoning, 2.75× live token allowances, 2.5× live deadlines, a focused 140–220-word target, and 1.5× background digest deadlines. Gemini adds a 12,288-token completion floor and 1.35× deadline margin.
-- Verification routes Momo to GPT-5.6 Sol and Bobby to Gemini 2.5 Pro with high reasoning, 2× live token allowance, and 2.5× live deadlines; Gemini adds a 32,768-token completion floor and 1.5× deadline margin. Explicit requests to check the original source automatically use this profile for one segment.
+- Fast Bobby uses Gemini minimal reasoning with a 90-second effective first-token deadline and nine-minute total ceiling. Timeout recovery is attempted once with a 1.5× retry-only deadline.
+- Research routes Momo to GPT-5.6 Sol and Bobby to Gemini 3.6 Flash by default, with medium reasoning, 2.75× live token allowances, 2.5× live deadlines, a focused 140–220-word target, and 1.5× background digest deadlines. Gemini adds a 12,288-token completion floor and 2× deadline margin.
+- Verification routes Momo to GPT-5.6 Sol and Bobby to Gemini 2.5 Pro with high reasoning, 2× live token allowance, and 2.5× live deadlines; Gemini adds a 32,768-token completion floor and 2.25× deadline margin. Explicit requests to check the original source automatically use this profile for one segment.
 - Source excerpts remain excluded from ordinary rounds. Verification mode alone increases reasoning; raw excerpts are still added only when Sam explicitly requests the original source.
 - The landing page and session settings expose the profile selector, `/api/meta` publishes the profile catalog, and `.env.example` documents all override variables.
 - The landing page and conversation header expose explicit AI LLM mode buttons; the in-session choice applies to the next segment and is disabled during active streaming.
@@ -186,9 +187,13 @@ Exit criteria:
 
 Goal: make expected provider and job failures easier to recover from without introducing a distributed stack.
 
-Candidate work:
+Implemented in this increment:
 
-- One retry before visible output for retryable provider failures
+- One timeout-only retry, including timeouts after partial output; the UI clears the discarded fragment and shows a non-persistent System retry notice
+- One cross-participant handoff after an exhausted retry; the fallback prompt forbids inventing the unavailable model's response and preserves the round when the fallback succeeds
+
+Remaining candidate work:
+
 - Explicit UI recovery choices after partial streamed failure
 - Per-provider concurrency limits and simple health cooldown
 - Startup reconciliation that marks abandoned running jobs as interrupted

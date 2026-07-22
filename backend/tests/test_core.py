@@ -250,6 +250,7 @@ def test_momo_digest_and_participant_budget_defaults(monkeypatch) -> None:
         "MOMO_LIVE_MAX_OUTPUT_TOKENS",
         "BOBBY_LIVE_MAX_OUTPUT_TOKENS",
         "BOBBY_MODEL",
+        "BOBBY_REASONING_EFFORT",
         "RESEARCH_BOBBY_MODEL",
         "VERIFICATION_BOBBY_MODEL",
         "GEMINI_FAST_MIN_OUTPUT_TOKENS",
@@ -258,6 +259,8 @@ def test_momo_digest_and_participant_budget_defaults(monkeypatch) -> None:
         "GEMINI_MAX_OUTPUT_TOKENS",
         "GEMINI_RESEARCH_TIMEOUT_MULTIPLIER",
         "GEMINI_VERIFICATION_TIMEOUT_MULTIPLIER",
+        "LIVE_TIMEOUT_RETRY_ATTEMPTS",
+        "LIVE_TIMEOUT_RETRY_MULTIPLIER",
     ):
         monkeypatch.delenv(name, raising=False)
     settings = get_settings()
@@ -266,6 +269,7 @@ def test_momo_digest_and_participant_budget_defaults(monkeypatch) -> None:
     assert settings.momo_live_max_output_tokens == 800
     assert settings.bobby_live_max_output_tokens == 1400
     assert settings.bobby.model == "gemini-3.5-flash-lite"
+    assert settings.bobby.reasoning_effort == "minimal"
     assert settings.research_bobby_model == "gemini-3.6-flash"
     assert settings.research_bobby_reasoning_effort == "medium"
     assert settings.verification_bobby_model == "gemini-2.5-pro"
@@ -274,8 +278,10 @@ def test_momo_digest_and_participant_budget_defaults(monkeypatch) -> None:
     assert settings.gemini_research_min_output_tokens == 12288
     assert settings.gemini_verification_min_output_tokens == 32768
     assert settings.gemini_max_output_tokens == 65536
-    assert settings.gemini_research_timeout_multiplier == 1.35
-    assert settings.gemini_verification_timeout_multiplier == 1.5
+    assert settings.gemini_research_timeout_multiplier == 2.0
+    assert settings.gemini_verification_timeout_multiplier == 2.25
+    assert settings.live_timeout_retry_attempts == 1
+    assert settings.live_timeout_retry_multiplier == 1.5
 
 
 def test_research_profile_selects_flagship_models_and_expanded_budget(tmp_path: Path) -> None:
@@ -306,7 +312,7 @@ def test_research_profile_selects_flagship_models_and_expanded_budget(tmp_path: 
     assert momo_request.max_output_tokens == 2200
     assert bobby_request.max_output_tokens == 12288
     assert momo_request.stream_idle_timeout == 112.5
-    assert bobby_request.stream_idle_timeout == 151.875
+    assert bobby_request.stream_idle_timeout == 225
     assert momo_request.verbosity == "medium"
     assert bobby_request.verbosity == "medium"
     assert "140-220 words" in momo_request.system
@@ -353,9 +359,9 @@ def test_gemini_live_reserves_cover_thinking_and_remain_capped(tmp_path: Path) -
         api_style="chat_completions",
         api_key_env="FAKE_KEY",
         reasoning_effort="low",
-        first_token_timeout=90,
-        stream_idle_timeout=90,
-        total_timeout=480,
+        first_token_timeout=60,
+        stream_idle_timeout=60,
+        total_timeout=360,
     )
     settings = Settings(
         project_root=tmp_path, data_dir=tmp_path, uploads_dir=tmp_path / "uploads",
@@ -371,7 +377,7 @@ def test_gemini_live_reserves_cover_thinking_and_remain_capped(tmp_path: Path) -
 
     fast_request = service.build_context(db.get_session(session["id"]), "Bobby", 0)
     assert fast_request.max_output_tokens == 4096
-    assert fast_request.stream_idle_timeout == 135
+    assert fast_request.stream_idle_timeout == 90
 
     db.update_session(session["id"], conversation_profile="verification")
     verification_session = db.get_session(session["id"])
@@ -811,7 +817,7 @@ def test_continue_without_sam_answers_provisionally_and_skips_immediate_checkpoi
     assert sum(event["type"] == "round_complete" for event in events) == 2
 
 
-def test_first_token_timeout_returns_control_to_sam(tmp_path: Path) -> None:
+def test_first_token_timeout_hands_off_to_other_ai(tmp_path: Path) -> None:
     db = make_db(tmp_path)
     session = db.create_session("Latency", "Handle a stalled provider", 2, False, False)
     provider = ProviderConfig(
@@ -833,7 +839,11 @@ def test_first_token_timeout_returns_control_to_sam(tmp_path: Path) -> None:
         first_token_timeout=0.01, total_timeout=1,
     )
 
+    calls = 0
+
     async def stalled_stream(request: GenerationRequest):
+        nonlocal calls
+        calls += 1
         await asyncio.sleep(0.05)
         yield "Too late"
 
@@ -846,9 +856,116 @@ def test_first_token_timeout_returns_control_to_sam(tmp_path: Path) -> None:
         )]
 
     events = asyncio.run(collect())
-    timeout_event = next(event for event in events if event["type"] == "provider_error")
-    assert "first-token deadline" in timeout_event["message"]
+    assert calls == 4  # two failed attempts in each of the two scheduled rounds
+    handoffs = [
+        event for event in events
+        if event["type"] == "system_notice" and event.get("status") == "handoff"
+    ]
+    assert len(handoffs) == 2
+    assert all("Bobby will pick up" in event["text"] for event in handoffs)
+    assert sum(event["type"] == "message_abandoned" for event in events) == 2
+    assert not any(event["type"] == "provider_error" for event in events)
+    assert any(
+        "Momo timed out after one retry" in request.system
+        for request in registry.items["Bobby"].requests
+    )
+    assert all(message["speaker"] != "Momo" for message in db.list_messages(session["id"]))
+    assert all(message["speaker"] != "System" for message in db.list_messages(session["id"]))
     assert db.get_session(session["id"])["state"] == "HUMAN_FLOOR"
+
+
+def test_second_ai_timeout_after_handoff_returns_control_to_sam(tmp_path: Path) -> None:
+    db = make_db(tmp_path)
+    session = db.create_session("Latency", "Stop only when both providers stall", 2, False, False)
+    provider = ProviderConfig(
+        participant="Momo", base_url="https://example.invalid/v1", model="fake",
+        api_style="responses", api_key_env="FAKE_KEY", reasoning_effort="low",
+    )
+    settings = Settings(
+        project_root=tmp_path, data_dir=tmp_path, uploads_dir=tmp_path / "uploads",
+        db_path=tmp_path / "test.sqlite3", host="127.0.0.1", port=8765,
+        digest_provider="bobby", digest_interval=6, recent_round_count=5,
+        host_checkpoint_interval=3, live_max_output_tokens=350,
+        conversation_digest_max_output_tokens=2000, topic_digest_max_output_tokens=3000,
+        source_digest_max_output_tokens=4000, momo=provider, bobby=provider,
+    )
+    registry = FakeRegistry()
+    for speaker in ("Momo", "Bobby"):
+        registry.items[speaker].config = ProviderConfig(
+            participant=speaker, base_url="https://example.invalid/v1", model="fake",
+            api_style="responses", api_key_env="FAKE_KEY", reasoning_effort="low",
+            first_token_timeout=0.01, total_timeout=1,
+        )
+
+        async def stalled_stream(request: GenerationRequest):
+            await asyncio.sleep(0.05)
+            yield "Too late"
+
+        registry.items[speaker].stream = stalled_stream
+    service = RoundtableService(settings, db, registry)
+
+    async def collect():
+        return [event async for event in service.stream_segment(
+            session["id"], rounds=2, starting_speaker="Momo"
+        )]
+
+    events = asyncio.run(collect())
+    assert any(
+        event["type"] == "system_notice" and event.get("status") == "handoff"
+        for event in events
+    )
+    assert any(event["type"] == "provider_error" and event["speaker"] == "Bobby" for event in events)
+    assert db.get_session(session["id"])["state"] == "HUMAN_FLOOR"
+    assert all(message["speaker"] != "System" for message in db.list_messages(session["id"]))
+
+
+def test_timeout_retry_notice_is_ephemeral_and_second_attempt_can_succeed(tmp_path: Path) -> None:
+    db = make_db(tmp_path)
+    session = db.create_session("Latency", "Recover from one stalled attempt", 2, False, False)
+    provider = ProviderConfig(
+        participant="Momo", base_url="https://example.invalid/v1", model="fake",
+        api_style="responses", api_key_env="FAKE_KEY", reasoning_effort="low",
+    )
+    settings = Settings(
+        project_root=tmp_path, data_dir=tmp_path, uploads_dir=tmp_path / "uploads",
+        db_path=tmp_path / "test.sqlite3", host="127.0.0.1", port=8765,
+        digest_provider="bobby", digest_interval=6, recent_round_count=5,
+        host_checkpoint_interval=3, live_max_output_tokens=350,
+        conversation_digest_max_output_tokens=2000, topic_digest_max_output_tokens=3000,
+        source_digest_max_output_tokens=4000, momo=provider, bobby=provider,
+    )
+    registry = FakeRegistry()
+    registry.items["Momo"].config = ProviderConfig(
+        participant="Momo", base_url="https://example.invalid/v1", model="fake",
+        api_style="responses", api_key_env="FAKE_KEY", reasoning_effort="low",
+        first_token_timeout=0.01, stream_idle_timeout=0.01, total_timeout=1,
+    )
+    calls = 0
+
+    async def recovers_on_retry(request: GenerationRequest):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            await asyncio.sleep(0.05)
+        yield "Recovered response"
+
+    registry.items["Momo"].stream = recovers_on_retry
+    service = RoundtableService(settings, db, registry)
+
+    async def collect():
+        return [event async for event in service.stream_segment(
+            session["id"], rounds=2, starting_speaker="Momo"
+        )]
+
+    events = asyncio.run(collect())
+    momo = next(message for message in db.list_messages(session["id"]) if message["speaker"] == "Momo")
+    assert calls == 3  # first attempt + retry + Momo's normal second-round turn
+    assert momo["content"] == "Recovered response"
+    assert momo["metadata"]["timeout_retries"] == 1
+    assert any(event["type"] == "system_notice" for event in events)
+    assert any(event["type"] == "retry_reset" for event in events)
+    assert not any(event["type"] == "provider_error" for event in events)
+    assert all(message["speaker"] != "System" for message in db.list_messages(session["id"]))
 
 
 def test_output_limit_preserves_partial_and_prevents_next_speaker(tmp_path: Path) -> None:

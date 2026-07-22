@@ -63,6 +63,25 @@ describe("TranscriptMessage", () => {
     expect(markup).toContain("research");
     expect(markup).toContain("medium reasoning");
   });
+
+  it("renders an automatic timeout retry as an ephemeral System notice", () => {
+    const markup = renderToStaticMarkup(
+      <TranscriptMessage message={{
+        id: "retry-1",
+        speaker: "System",
+        content: "Bobby took too long to respond. Retrying once with a longer timeout…",
+        status: "retrying",
+        target: "roundtable",
+        metadata: { kind: "ephemeral_retry_status", participant: "Bobby" },
+        created_at: "2026-07-22T00:00:00Z",
+        temporary: true,
+      }} />,
+    );
+
+    expect(markup).toContain("automatic retry");
+    expect(markup).toContain("Retrying once");
+    expect(markup).toContain("is-ephemeral-system");
+  });
 });
 
 describe("NewSessionForm", () => {

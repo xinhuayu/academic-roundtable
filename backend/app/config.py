@@ -117,8 +117,10 @@ class Settings:
     gemini_research_min_output_tokens: int = 12288
     gemini_verification_min_output_tokens: int = 32768
     gemini_max_output_tokens: int = 65536
-    gemini_research_timeout_multiplier: float = 1.35
-    gemini_verification_timeout_multiplier: float = 1.5
+    gemini_research_timeout_multiplier: float = 2.0
+    gemini_verification_timeout_multiplier: float = 2.25
+    live_timeout_retry_attempts: int = 1
+    live_timeout_retry_multiplier: float = 1.5
     voice_transcription_base_url: str = "https://api.openai.com/v1"
     voice_transcription_model: str = "gpt-4o-mini-transcribe"
     voice_transcription_api_key_env: str = "OPENAI_API_KEY"
@@ -139,11 +141,14 @@ def provider_from_env(name: str, default_model: str) -> ProviderConfig:
         model=model,
         api_style=os.getenv(f"{prefix}_API_STYLE", "responses").lower(),
         api_key_env=os.getenv(f"{prefix}_API_KEY_ENV", "OPENAI_API_KEY"),
-        reasoning_effort=os.getenv(f"{prefix}_REASONING_EFFORT", "low"),
+        reasoning_effort=os.getenv(
+            f"{prefix}_REASONING_EFFORT",
+            "minimal" if model.lower() == "gemini-3.5-flash-lite" else "low",
+        ),
         connect_timeout=env_float(f"{prefix}_CONNECT_TIMEOUT_SECONDS", 15.0 if is_gemini else 10.0),
-        first_token_timeout=env_float(f"{prefix}_FIRST_TOKEN_TIMEOUT_SECONDS", 90.0 if is_gemini else 45.0),
-        stream_idle_timeout=env_float(f"{prefix}_STREAM_IDLE_TIMEOUT_SECONDS", 90.0 if is_gemini else 45.0),
-        total_timeout=env_float(f"{prefix}_TOTAL_TIMEOUT_SECONDS", 480.0 if is_gemini else 180.0),
+        first_token_timeout=env_float(f"{prefix}_FIRST_TOKEN_TIMEOUT_SECONDS", 60.0 if is_gemini else 45.0),
+        stream_idle_timeout=env_float(f"{prefix}_STREAM_IDLE_TIMEOUT_SECONDS", 60.0 if is_gemini else 45.0),
+        total_timeout=env_float(f"{prefix}_TOTAL_TIMEOUT_SECONDS", 360.0 if is_gemini else 180.0),
     )
 
 
@@ -236,10 +241,16 @@ def get_settings() -> Settings:
             32768, min(65536, env_int("GEMINI_MAX_OUTPUT_TOKENS", 65536))
         ),
         gemini_research_timeout_multiplier=_bound_multiplier(
-            env_float("GEMINI_RESEARCH_TIMEOUT_MULTIPLIER", 1.35), 1.0, 2.0
+            env_float("GEMINI_RESEARCH_TIMEOUT_MULTIPLIER", 2.0), 1.0, 3.0
         ),
         gemini_verification_timeout_multiplier=_bound_multiplier(
-            env_float("GEMINI_VERIFICATION_TIMEOUT_MULTIPLIER", 1.5), 1.0, 2.5
+            env_float("GEMINI_VERIFICATION_TIMEOUT_MULTIPLIER", 2.25), 1.0, 3.0
+        ),
+        live_timeout_retry_attempts=max(
+            0, min(1, env_int("LIVE_TIMEOUT_RETRY_ATTEMPTS", 1))
+        ),
+        live_timeout_retry_multiplier=_bound_multiplier(
+            env_float("LIVE_TIMEOUT_RETRY_MULTIPLIER", 1.5), 1.0, 2.0
         ),
         voice_transcription_base_url=os.getenv(
             "VOICE_TRANSCRIPTION_BASE_URL", "https://api.openai.com/v1"
