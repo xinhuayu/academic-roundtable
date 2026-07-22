@@ -64,6 +64,11 @@ def test_explicit_sam_language_switch_updates_the_session_before_routing(tmp_pat
     db.initialize()
     session = db.create_session("Cognitive trajectories", "Compare interpretations", 2, False, False)
     service = RoundtableService(main_module.settings, db, main_module.adapters)
+    topic_refreshes: list[tuple[str, str]] = []
+    service.request_topic_digest = lambda session_id, reason="requested": (
+        topic_refreshes.append((session_id, reason))
+        or {"id": "topic-language-refresh", "kind": "topic_digest", "status": "queued"}
+    )
     monkeypatch.setattr(main_module, "database", db)
     monkeypatch.setattr(main_module, "service", service)
     client = TestClient(main_module.app)
@@ -82,6 +87,8 @@ def test_explicit_sam_language_switch_updates_the_session_before_routing(tmp_pat
     updated = db.get_session(session["id"])
     assert updated["conversation_language"] == "Chinese"
     assert updated["language_source"] == "sam"
+    assert topic_refreshes == [(session["id"], "conversation_language_changed")]
+    assert response.json()["topic_digest_job"]["id"] == "topic-language-refresh"
 
 
 def test_voice_endpoint_returns_editable_text_without_persisting_audio(tmp_path, monkeypatch) -> None:

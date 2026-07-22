@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 Participant = Literal["Sam", "Momo", "Bobby", "System"]
 ConversationProfile = Literal["fast", "research", "verification"]
+CloseoutSummaryProfile = Literal["research", "verification"]
 
 
 class SessionCreate(BaseModel):
@@ -35,6 +36,10 @@ class SegmentRequest(BaseModel):
 class RecapRequest(BaseModel):
     focus: str | None = Field(default=None, max_length=2000)
     periodic: bool | None = None
+
+
+class CloseoutSummaryRequest(BaseModel):
+    profile: CloseoutSummaryProfile = "research"
 
 
 class SessionSettingsUpdate(BaseModel):

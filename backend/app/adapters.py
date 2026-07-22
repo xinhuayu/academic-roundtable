@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -9,6 +10,9 @@ from typing import Any
 import httpx
 
 from .config import ProviderConfig, Settings
+
+
+logger = logging.getLogger(__name__)
 
 
 class ProviderError(RuntimeError):
@@ -98,23 +102,34 @@ class LLMAdapter:
     async def stream(self, request: GenerationRequest) -> AsyncIterator[str]:
         if not self.config.configured:
             raise ProviderError(self.config.participant, "configuration", "Provider is not configured")
-        if self.config.api_style == "responses":
-            async for delta in self._stream_responses(request):
-                yield delta
-            return
-        if self.config.api_style == "chat_completions":
-            async for delta in self._stream_chat_completions(request):
-                yield delta
-            return
-        if self.config.api_style == "anthropic_messages":
-            async for delta in self._stream_anthropic_messages(request):
-                yield delta
-            return
-        raise ProviderError(
-            self.config.participant,
-            "configuration",
-            f"Unsupported API style: {self.config.api_style}",
-        )
+        try:
+            if self.config.api_style == "responses":
+                async for delta in self._stream_responses(request):
+                    yield delta
+                return
+            if self.config.api_style == "chat_completions":
+                async for delta in self._stream_chat_completions(request):
+                    yield delta
+                return
+            if self.config.api_style == "anthropic_messages":
+                async for delta in self._stream_anthropic_messages(request):
+                    yield delta
+                return
+            raise ProviderError(
+                self.config.participant,
+                "configuration",
+                f"Unsupported API style: {self.config.api_style}",
+            )
+        except ProviderError:
+            raise
+        except Exception as exc:
+            logger.exception("Unexpected %s provider-stream failure", self.config.participant)
+            raise ProviderError(
+                self.config.participant,
+                "provider_protocol",
+                f"{self.config.participant} returned an unexpected streaming response",
+                retryable=False,
+            ) from exc
 
     async def generate(self, request: GenerationRequest) -> str:
         chunks: list[str] = []
@@ -146,6 +161,8 @@ class LLMAdapter:
             async with self.client.stream(
                 "POST", "/responses", json=body, timeout=self._request_timeout(request)
             ) as response:
+                if response.is_error:
+                    await response.aread()
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
@@ -201,6 +218,8 @@ class LLMAdapter:
             async with self.client.stream(
                 "POST", "/chat/completions", json=body, timeout=self._request_timeout(request)
             ) as response:
+                if response.is_error:
+                    await response.aread()
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
@@ -210,12 +229,17 @@ class LLMAdapter:
                         continue
                     try:
                         event = json.loads(data)
-                        choice = event.get("choices", [{}])[0]
-                        delta = choice.get("delta", {}).get("content", "")
-                        if choice.get("finish_reason") is not None:
-                            finish_reason = str(choice["finish_reason"]).lower()
-                    except (json.JSONDecodeError, IndexError, AttributeError):
+                    except json.JSONDecodeError:
                         continue
+                    choices = event.get("choices") if isinstance(event, dict) else None
+                    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+                        continue
+                    choice = choices[0]
+                    delta_object = choice.get("delta")
+                    content = delta_object.get("content", "") if isinstance(delta_object, dict) else ""
+                    delta = content if isinstance(content, str) else ""
+                    if choice.get("finish_reason") is not None:
+                        finish_reason = str(choice["finish_reason"]).lower()
                     if delta:
                         yield delta
             if finish_reason == "length":
@@ -263,6 +287,8 @@ class LLMAdapter:
             async with self.client.stream(
                 "POST", "/messages", json=body, timeout=self._request_timeout(request)
             ) as response:
+                if response.is_error:
+                    await response.aread()
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
@@ -339,6 +365,10 @@ class LLMAdapter:
     def _safe_http_error(response: httpx.Response) -> str:
         try:
             payload = response.json()
+            if isinstance(payload, list) and payload and isinstance(payload[0], dict):
+                payload = payload[0]
+            if not isinstance(payload, dict):
+                return "Request failed"
             detail = payload.get("error", {}).get("message") or payload.get("message")
             return str(detail)[:300] if detail else "Request failed"
         except (ValueError, AttributeError):

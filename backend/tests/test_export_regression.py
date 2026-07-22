@@ -11,6 +11,10 @@ from app.database import Database
 
 
 class _NoopService:
+    def __init__(self, db: Database) -> None:
+        self.db = db
+        self.final_summary_requests: list[tuple[str, str]] = []
+
     async def interrupt_and_wait(self, *_args: object, **_kwargs: object) -> bool:
         return False
 
@@ -20,11 +24,64 @@ class _NoopService:
     async def cancel_final_summary(self, *_args: object) -> bool:
         return False
 
+    def choose_next_speaker(self, *_args: object, **_kwargs: object) -> str:
+        return "Momo"
+
+    def request_final_summary(self, session_id: str, profile: str = "research") -> dict:
+        self.final_summary_requests.append((session_id, profile))
+        job = self.db.create_job(session_id, "final_summary", {"profile": profile})
+        self.db.update_session(session_id, state="CLOSING")
+        return job
+
 
 def make_test_client(db: Database, monkeypatch) -> TestClient:
     monkeypatch.setattr(main_module, "database", db)
-    monkeypatch.setattr(main_module, "service", _NoopService())  # type: ignore[assignment]
+    monkeypatch.setattr(main_module, "service", _NoopService(db))  # type: ignore[assignment]
     return TestClient(main_module.app)
+
+
+def test_closeout_summary_is_optional_and_defaults_to_research(tmp_path, monkeypatch) -> None:
+    db = Database(tmp_path / "optional-closeout-summary.sqlite3")
+    db.initialize()
+    session = db.create_session("Optional synthesis", "Close without hidden model work", 2, False, False)
+    service = _NoopService(db)
+    monkeypatch.setattr(main_module, "database", db)
+    monkeypatch.setattr(main_module, "service", service)  # type: ignore[assignment]
+    client = TestClient(main_module.app)
+
+    closed = client.post(f"/api/sessions/{session['id']}/close")
+
+    assert closed.status_code == 200
+    assert closed.json()["state"] == "CLOSED"
+    assert service.final_summary_requests == []
+    assert not any(job["kind"] == "final_summary" for job in db.list_jobs(session["id"]))
+
+    started = client.post(f"/api/sessions/{session['id']}/final-summary", json={})
+
+    assert started.status_code == 200
+    assert started.json()["state"] == "CLOSING"
+    assert service.final_summary_requests == [(session["id"], "research")]
+    final_job = next(job for job in db.list_jobs(session["id"]) if job["kind"] == "final_summary")
+    assert final_job["payload"] == {"profile": "research"}
+
+
+def test_closeout_summary_accepts_explicit_verification_mode(tmp_path, monkeypatch) -> None:
+    db = Database(tmp_path / "verification-closeout-summary.sqlite3")
+    db.initialize()
+    session = db.create_session("Verified synthesis", "Check every important claim", 2, False, False)
+    db.update_session(session["id"], state="CLOSED")
+    service = _NoopService(db)
+    monkeypatch.setattr(main_module, "database", db)
+    monkeypatch.setattr(main_module, "service", service)  # type: ignore[assignment]
+    client = TestClient(main_module.app)
+
+    started = client.post(
+        f"/api/sessions/{session['id']}/final-summary",
+        json={"profile": "verification"},
+    )
+
+    assert started.status_code == 200
+    assert service.final_summary_requests == [(session["id"], "verification")]
 
 
 def test_one_page_summary_export_is_available_only_after_close(tmp_path, monkeypatch) -> None:

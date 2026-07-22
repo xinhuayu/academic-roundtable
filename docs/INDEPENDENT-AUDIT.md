@@ -20,11 +20,62 @@ Audit disposition: **ready for local learning pilots after the recorded fixes; n
 
 ## Method
 
-The audit inspected the repository structure, API routes, persistence model, orchestration and prompt assembly, provider adapters, document pipeline, frontend session lifecycle, exports, ignore rules, tests, and existing documentation. Deterministic backend tests and a frontend production build are the verification gates; live provider generation is separate because it depends on external services and consumes API capacity.
+The audit inspected the repository structure, API routes, persistence model, orchestration and prompt assembly, provider adapters, document pipeline, frontend session lifecycle, exports, ignore rules, tests, and existing documentation. Deterministic backend tests and a frontend production build are the repeatable verification gates. The dated live runs below additionally used the configured OpenAI and Google connections and therefore consumed provider capacity.
+
+### Full-system live audit and source-grounded simulation (2026-07-22)
+
+The current build was exercised against the running local server with the configured OpenAI and Google providers and the approved 792,401-byte `Cognitive Trajectories and Subsequent Health Status.pdf`. No key value was printed, logged into the repository, or copied into an artifact.
+
+Provider and extraction status:
+
+- Momo Fast: `gpt-5.6-luna`, OpenAI Responses, reachable.
+- Bobby Fast: `gemini-3.5-flash-lite`, Google OpenAI-compatible Chat Completions, reachable.
+- PDF stack: PyMuPDF 1.28.0, pdfplumber 0.11.10, and pypdf 6.14.2.
+- Upload acknowledgement: 0.231 s.
+- Document Digest: 81.704 s and 23,858 characters.
+- source-refined Topic Digest: 9.283 s and approximately 5,879 JSON characters.
+- The corrected language detector retained **English** for the English paper.
+
+Live conversation measurements:
+
+| Profile | Actual Momo route | Actual Bobby route | First visible text | Two-round segment | Visible turn size | Provider errors |
+|---|---|---|---:|---:|---:|---:|
+| Fast | `gpt-5.6-luna`, low | `gemini-3.5-flash-lite`, minimal | 2.240 s | 12.062 s | 100-118 words | 0 |
+| Research | `gpt-5.6-sol`, medium | `gemini-3.6-flash`, medium | 12.717 s | 62.666 s | 185-231 words | 0 |
+| Verification, final route | `gpt-5.6-sol`, high | `gemini-pro-latest`, high | 14.787 s | 51.213 s | 108-122 words | 0 |
+
+Fast remained responsive and concise. Research incurred a five-fold segment-latency increase but added substantive discussion of posterior classification, informative attrition, time-varying confounding, terminal decline, and joint longitudinal-survival alternatives. Two Momo Research turns slightly exceeded the approximate 220-word target (228 and 231 words); this is a prompt-tuning watch item, not a token-limit or truncation defect. Verification retrieved bounded original-source passages only after Sam explicitly requested a PDF check and correctly recorded page-level evidence in the visible turns.
+
+Closeout and export measurements (historical explicit-Verification run):
+
+- Momo's comprehensive Summary Digest and Bobby's one-page summary started within 0.1 seconds of each other and ran concurrently in Verification/high mode.
+- Bobby's one-page summary completed in about 26.1 s; Momo's comprehensive digest completed in about 124.8 s; total closeout elapsed time was 125.5 s rather than their sum.
+- Both jobs completed normally with no fallback. The one-page output was 5,339 bytes and the comprehensive Summary Digest export was 25,307 bytes.
+- Readable transcript export: 83,428 bytes. Complete archive: 544,369 bytes. Every export returned HTTP 200.
+- The complete archive retained the source-supporting digest records; the standalone comprehensive Summary Digest remained synthesis-only as designed.
+
+Interface and lifecycle validation at 1280x720:
+
+- The clean landing view had no page scroll, and **Start roundtable** was fully visible at 621-653 px within the 720 px viewport.
+- After the requested synthesis completed, closeout displayed all four export controls, then the optional learning evaluation, then the centered new-roundtable action.
+- Selecting the new-roundtable action without a UI-recorded download displayed the warning above the action, with separate stay and purge choices.
+- The audit-created session was purged through the confirmed UI path; the app was left on a clean landing page.
+- No browser-console warning/error and no Unicode replacement character were found.
+
+High-priority defects found and resolved:
+
+1. **False Portuguese detection for an English PDF.** Common one-letter tokens accumulated Portuguese stop-word points. Latin-language switching now requires repeated distinctive vocabulary evidence, with an English academic regression fixture.
+2. **Silent Bobby stream termination.** Streaming HTTP errors were inspected before the response body had been consumed, causing a runtime exception that bypassed the structured error path. Error bodies are now read inside the stream context, unexpected adapter/service exceptions are contained, and the UI always receives a sanitized `provider_error` instead of a hanging participant card.
+3. **Google error-envelope mismatch.** Some Google errors are returned as a one-element JSON list. Safe error parsing now normalizes both list- and object-wrapped envelopes.
+4. **Unavailable default Verification model.** Google advertised `gemini-2.5-pro` in `/models` but returned 404 for generation because it is unavailable to new users. The default is now the live-validated `gemini-pro-latest`; environment overrides remain supported.
+
+Performance disposition: ordinary Fast discussion is responsive; source digestion, Research, Verification, and closeout are intentionally slower asynchronous/deep paths and all completed inside their configured limits. Visible dialogue remained bounded, no completed reply was truncated, and the large Gemini completion ceilings continued to function as hidden-thinking reserves rather than prose targets.
+
+Environment note: `pip check` on the long-lived local virtual environment reports an orphaned `cryptography` installation whose optional `cffi` dependency is absent. `cryptography` is not a declared application dependency, and live TLS calls to both providers succeeded, so this is not an application failure. Recreating the virtual environment from `requirements.txt` during the pending clean-clone test is preferable to adding an unused package solely to silence local environment drift.
 
 ### Live connection audit (2026-07-21)
 
-This section is a dated measurement record, not the current model configuration. The current Bobby defaults are Gemini 3.5 Flash-Lite for Fast, Gemini 3.6 Flash for Research, and Gemini 2.5 Pro for Verification; those routes require a fresh live benchmark after the server is restarted.
+This section is a dated measurement record, not the current model configuration. The current Bobby defaults are Gemini 3.5 Flash-Lite for Fast, Gemini 3.6 Flash for Research, and `gemini-pro-latest` for Verification; see the 2026-07-22 audit above for the current benchmark.
 
 I executed `scripts/live_audit_session.py` against the already-running application, with real OpenAI and Google provider calls, using the PDF file:
 `Cognitive Trajectories and Subsequent Health Status.pdf`.
@@ -133,7 +184,7 @@ These are acceptable MVP boundaries when stated honestly.
 - Background knowledge is visually separated from the core response.
 - Digests sit below the main conversation instead of competing in side frames.
 - The closeout view creates a clear download opportunity before single-session deletion.
-- Closeout exposes blue, stage-specific progress notices for final and one-page summaries; save/download actions precede the optional learning evaluation.
+- Closeout performs no automatic synthesis. It exposes a Research-default / Verification-opt-in selector first, then blue, stage-specific progress notices only after Sam requests final and one-page summaries; save/download actions precede the optional learning evaluation.
 
 ### Follow-up validation
 
@@ -173,6 +224,8 @@ The earlier documentation overstated several capabilities. Automatic job resumpt
 7. **Closed sessions still accepted recap and upload mutations.** Both routes now return `409 Conflict` once closeout begins, preserving the downloadable final record.
 8. **One-page export selection was stale.** When multiple one-page digests existed, direct and Markdown exports could choose the oldest. Both now select the latest completed one-page digest.
 9. **Repeated recap requests could launch concurrent digest calls.** An active Conversation Digest job is now reused and recap controls are disabled while it runs, preventing duplicate provider work.
+10. **Closeout synthesis was automatic and over-selected Verification.** Ending a table now closes it without provider work. A top-of-closeout selector offers Research as the balanced default and Verification only by Sam's explicit choice; archive/transcript downloads, evaluation, and a new table remain independent of synthesis.
+11. **Ambiguous Latin source text could override English.** Source detection now treats English as the default and switches only on clear non-English evidence. Once Sam names a conversation language, it controls all later source, Topic, Conversation, final, and one-page synthesis prompts regardless of the document language; an actual mid-session switch also queues one deduplicated Topic Digest refresh.
 
 ### Medium-priority findings resolved
 
@@ -197,13 +250,14 @@ Before pushing to GitHub, scan the working tree and repository history for secre
 
 ## Verification evidence
 
-- Backend: **88 tests passed** with `.venv\Scripts\python.exe -m pytest backend\tests -q`. Coverage includes ephemeral voice transcription, audio format/size/lifecycle guards, topic-guided provider requests, multi-round persistence of expanded long-Sam allowances, multilingual session persistence and prompt enforcement, exact profile/model/reasoning metadata in SSE and stored turns, preservation of background knowledge/inference in Conversation Digest materials, English/Chinese control intents, synthesis-only Summary Digest export, concurrent Momo/Bobby closeout generation with forced GPT-5.6 Sol/high and Gemini 2.5 Pro/high Verification profiles, identical delivery of bounded extracted text, processed source digests, Topic Digest, complete Conversation Digest history, and substantive transcript to both authors, explicit supporting digest files in the complete archive, digest-only ordinary source context, explicit original-source verification routing, selective flagship profile routing, bounded Gemini hidden-thinking reserves and timeout margins, one timeout-only retry with ephemeral notice and partial reset, cross-participant timeout handoff, exact one-session retention, post-close immutability, joint summary-job cancellation, latest one-page selection, and recap deduplication.
+- Backend: **94 tests passed** with `.venv\Scripts\python.exe -m pytest backend\tests -q`. Coverage includes ephemeral voice transcription, audio format/size/lifecycle guards, topic-guided provider requests, multi-round persistence of expanded long-Sam allowances, English-default conservative document-language detection, Sam-authoritative output language across differently languaged sources, resilient Chat Completions metadata/error handling, exact profile/model/reasoning metadata in SSE and stored turns, preservation of background knowledge/inference in Conversation Digest materials, synthesis-only Summary Digest export, close-without-summary behavior, Research-default and Verification-opt-in concurrent Momo/Bobby closeout generation, identical delivery of bounded extracted text, processed source digests, Topic Digest, complete Conversation Digest history, and substantive transcript to both authors, explicit supporting digest files in the complete archive, digest-only ordinary source context, explicit original-source verification routing, bounded Gemini hidden-thinking reserves and timeout margins, one timeout-only retry with ephemeral notice and partial reset, cross-participant timeout handoff, exact one-session retention, post-close immutability, joint summary-job cancellation, latest one-page selection, and recap deduplication.
 - Covered regression cases also include voice-expanded first-token/stream-idle/total-turn deadlines, first-token timeout recovery, immediate stalled-stream cancellation with partial-text retention, startup reconciliation, session-task cancellation, bounded context assembly, and preservation of `CLOSING` during interrupted stream cleanup.
-- Frontend: **10 Vitest tests passed**, followed by a successful TypeScript/Vite production build. Coverage includes actual model/mode/reasoning disclosure per AI turn, translated provenance-label formatting, the ephemeral timeout-retry System card, parallel Momo/Bobby closeout status, localized Sam-turn reminder copy, last-speaker voice selection, and the accessible persistent reminder toggle in addition to the existing voice-input, upload, and digest-status behavior. The earlier local browser audit confirmed that Voice input, its privacy notice, the four composer controls, textarea, and Answer button fit within Sam's fixed panel without scrolling or console errors. The updated production bundle also loaded from the local FastAPI server with no browser-console warnings or errors; the session panel was not opened during this check to avoid creating or purging local session data.
+- Frontend: **11 Vitest tests passed**, followed by a successful TypeScript/Vite production build. Coverage includes actual model/mode/reasoning disclosure per AI turn, translated provenance-label formatting, the ephemeral timeout-retry System card, Research/Verification Momo/Bobby closeout status, localized Sam-turn reminder copy, last-speaker voice selection, and the accessible persistent reminder toggle in addition to the existing voice-input, upload, and digest-status behavior. The earlier local browser audit confirmed that Voice input, its privacy notice, the four composer controls, textarea, and Answer button fit within Sam's fixed panel without scrolling or console errors.
 - Independent API lifecycle smoke script (mocked providers) confirms session creation, Sam message routing, segment streaming, document digest jobs, recap triggering, closeout, learning-evaluation availability, and export paths in a clean temporary DB.
-- Live-provider smoke test remains intentionally separate because it depends on external model availability and API keys.
+- Live-provider simulation remains intentionally separate from CI because it depends on external model availability, consumes API capacity, and transmits approved source extracts.
+- A current local-browser regression created and ended a temporary session against the rebuilt server. It observed `CLOSED` immediately with no final-summary job, Research selected by default with the expected medium-reasoning model labels, explicit Verification label switching, and archive/transcript/evaluation/new-table controls without synthesis. The test session was then purged and the app left on the clean landing page.
 
-The 2026-07-21 post-restart live health audit reported Momo (`gpt-5.6-luna`, OpenAI Responses) and Bobby (`gemini-3.1-flash-lite`, Google-compatible Chat Completions) configured and reachable. That is retained as historical evidence only; the current Bobby defaults are the 3.5 Flash-Lite / 3.6 Flash / 2.5 Pro profile split. No paid generation was invoked during this audit, and the retained 11-round user session was not mutated.
+The 2026-07-22 current-code audit reported Momo (`gpt-5.6-luna`, OpenAI Responses) and Bobby (`gemini-3.5-flash-lite`, Google-compatible Chat Completions) configured and reachable. Fast, Research, Verification, explicit original-source retrieval, concurrent closeout, every export, the unsaved-session warning, and final purge were exercised with an audit-created session. The app was left with no retained session.
 
 ## GitHub readiness checklist
 

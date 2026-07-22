@@ -37,7 +37,7 @@ Copy-Item .env.example .env.local
 
 Real API keys remain in `.env.local`, which is ignored by Git. The application stores runtime state in `data/`, also ignored.
 
-Language behavior is centralized in `backend/app/language.py`. Add aliases and localized fixed text there, keep detected values constrained to the supported canonical language set, and add deterministic tests for any new explicit-request or document-detection form. Never interpolate raw user text into the output-language system tag.
+Language behavior is centralized in `backend/app/language.py`. Source detection is intentionally English-default and changes language only on clear evidence. Add aliases and localized fixed text there, keep detected values constrained to the supported canonical language set, and add deterministic tests for any new explicit-request or document-detection form. Sam's selected conversation language must govern every subsequent live and synthesis prompt regardless of source language. Never interpolate raw user text into the output-language system tag.
 
 ### PDF extraction validation
 
@@ -98,7 +98,7 @@ The script cycles through Fast, Research, and Verification, reports the actual r
 
 ## Data lifecycle
 
-The app retains exactly one session. Session creation returns `409 Conflict` whenever any prior record exists unless the caller explicitly uses `force_reset=true`; reset deletes the prior transcript, digest history, evaluation, FTS passages, and managed uploads. Download, summary review, and learning evaluation are optional and never gate the next table. Once closeout begins, recap and source-upload routes are read-only so the downloadable record cannot change underneath Sam.
+The app retains exactly one session. Session creation returns `409 Conflict` whenever any prior record exists unless the caller explicitly uses `force_reset=true`; reset deletes the prior transcript, digest history, evaluation, FTS passages, and managed uploads. Ending moves directly to `CLOSED` and performs no automatic summary call. From the closeout page, Sam may explicitly request Research (default selection) or Verification synthesis; Cancel remains available while those two concurrent jobs run. Download, summary generation/review, and learning evaluation are optional and never gate the next table. Closed/closing records reject recap and source-upload mutations so the downloadable record cannot change underneath Sam.
 
 ## Deferred architecture
 

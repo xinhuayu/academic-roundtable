@@ -17,6 +17,7 @@ const profileMeta: Record<ConversationProfile, { label: string; short: string }>
 
 type VoiceState = "idle" | "recording" | "transcribing";
 type AISpeaker = "Momo" | "Bobby";
+type CloseoutProfile = "research" | "verification";
 
 const FEMININE_VOICE_HINTS = /(?:zira|aria|jenny|ava|emma|sonia|susan|samantha|victoria|karen|tessa|xiaoxiao|huihui|female|woman)/i;
 const MASCULINE_VOICE_HINTS = /(?:david|mark|guy|ryan|brian|george|daniel|thomas|james|alex|yunxi|male|man)/i;
@@ -194,20 +195,22 @@ export function buildDigestStatusMessages(jobs: Job[]): Message[] {
 export function buildCloseoutProgress(
   finalJob?: Job,
   onePageJob?: Job,
+  profile: CloseoutProfile = "research",
 ): { symbol: string; title: string; detail: string } {
+  const mode = profile === "verification" ? "Verification" : "Research";
   if (finalJob && onePageJob) {
     return {
       symbol: "Σ+1P",
-      title: "Momo and Bobby are summarizing in deep verification mode",
+      title: `Momo and Bobby are summarizing in ${mode} mode`,
       detail: `Momo: ${finalJob.detail}. Bobby: ${onePageJob.detail}.`,
     };
   }
   if (onePageJob) {
-    return { symbol: "1P", title: "Bobby is generating the one-page summary", detail: onePageJob.detail };
+    return { symbol: "1P", title: `Bobby is generating the one-page summary in ${mode} mode`, detail: onePageJob.detail };
   }
   return {
     symbol: "Σ",
-    title: "Momo is generating the Summary Digest",
+    title: `Momo is generating the Summary Digest in ${mode} mode`,
     detail: finalJob?.detail || "Reviewing the retained conversation and digest history",
   };
 }
@@ -493,6 +496,8 @@ function App() {
   const [automaticRoundVariation, setAutomaticRoundVariation] = useState(true);
   const [activeRound, setActiveRound] = useState<number | null>(null);
   const [recordDownloaded, setRecordDownloaded] = useState(false);
+  const [summaryStarting, setSummaryStarting] = useState(false);
+  const [closeoutProfile, setCloseoutProfile] = useState<CloseoutProfile>("research");
   const [evaluation, setEvaluation] = useState<LearningEvaluationBundle | null>(null);
   const [evaluationBusy, setEvaluationBusy] = useState(false);
   const [confirmNewSession, setConfirmNewSession] = useState(false);
@@ -553,6 +558,8 @@ function App() {
     if (!session) return;
     setActiveModelRoutes({});
     setRecordDownloaded(false);
+    setSummaryStarting(false);
+    setCloseoutProfile("research");
     setEvaluation(null);
     setConfirmNewSession(false);
     const frame = window.requestAnimationFrame(() => {
@@ -628,9 +635,10 @@ function App() {
   const activeJobs = useMemo(() => session?.jobs.filter((job) => ["queued", "running"].includes(job.status)) ?? [], [session?.jobs]);
   const activeFinalSummaryJob = activeJobs.find((job) => job.kind === "final_summary");
   const activeOnePageSummaryJob = activeJobs.find((job) => job.kind === "one_page_summary");
+  const activeCloseoutProfile: CloseoutProfile = activeFinalSummaryJob?.payload?.profile === "verification" ? "verification" : "research";
   const closeoutProgress = useMemo(
-    () => buildCloseoutProgress(activeFinalSummaryJob, activeOnePageSummaryJob),
-    [activeFinalSummaryJob, activeOnePageSummaryJob],
+    () => buildCloseoutProgress(activeFinalSummaryJob, activeOnePageSummaryJob, activeCloseoutProfile),
+    [activeFinalSummaryJob, activeOnePageSummaryJob, activeCloseoutProfile],
   );
   const recapActive = activeJobs.some((job) => job.kind === "conversation_digest");
   const digestStatusMessages = useMemo(() => buildDigestStatusMessages(activeJobs), [activeJobs]);
@@ -962,6 +970,14 @@ function App() {
       setSession(await api.cancelFinalSummary(session.id));
     } catch (cause) { setError((cause as Error).message); }
   };
+  const startCloseoutSummary = async () => {
+    if (!session || session.state !== "CLOSED" || summaryStarting) return;
+    setSummaryStarting(true); setError("");
+    try {
+      setSession(await api.startFinalSummary(session.id, closeoutProfile));
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setSummaryStarting(false); }
+  };
   const openEvaluation = async () => {
     if (!session || session.state !== "CLOSED") return;
     setEvaluationBusy(true); setError("");
@@ -1003,7 +1019,7 @@ function App() {
   };
   const requestNewRoundtable = () => {
     if (!session) { setError(""); return; }
-    const finalJob = session.jobs.find((job) => job.kind === "final_summary");
+    const finalJob = [...session.jobs].reverse().find((job) => job.kind === "final_summary");
     const summaryWasSkipped = ["cancelled", "interrupted"].includes(finalJob?.status ?? "");
     const needsConfirmation = session.state === "CLOSING" || summaryWasSkipped || !recordDownloaded;
     if (needsConfirmation) setConfirmNewSession(true);
@@ -1011,12 +1027,14 @@ function App() {
   };
 
   const finalSummary = [...(session?.messages ?? [])].reverse().find((message) => message.metadata.kind === "final_summary");
-  const finalSummaryJob = session?.jobs.find((job) => job.kind === "final_summary");
+  const finalSummaryJob = [...(session?.jobs ?? [])].reverse().find((job) => job.kind === "final_summary");
   const summaryCancelled = finalSummaryJob?.status === "cancelled";
   const summaryInterrupted = finalSummaryJob?.status === "interrupted";
   const onePageSummary = [...(session?.summary_history ?? [])]
     .reverse()
     .find((digest) => digest.kind === "one_page" && typeof digest.digest?.content === "string")?.digest?.content;
+  const closeoutSummaryAvailable = session?.state === "CLOSED" && !finalSummary && !finalSummaryJob;
+  const closeoutRoute = appMetadata?.conversation_profiles?.find((profile) => profile.id === closeoutProfile);
   const displayedProfile = activeModelRoutes.Momo?.profile || activeModelRoutes.Bobby?.profile || session?.conversation_profile || "fast";
   const configuredProfile = appMetadata?.conversation_profiles?.find((profile) => profile.id === displayedProfile);
   const displayedRoutes = (["Momo", "Bobby"] as const).reduce((routes, participant) => {
@@ -1071,9 +1089,32 @@ function App() {
           <section className="close-session-card">
             <div className="close-icon">✓</div>
             <div className="eyebrow">Session closeout</div>
-            <h1>{session.state === "CLOSING" ? "Preparing your final record…" : summaryCancelled ? "Session ended · summary skipped" : summaryInterrupted ? "Session ended · summary interrupted" : "Session concluded"}</h1>
-            <p>{session.state === "CLOSING" ? "The final summary is being assembled from the retained digest history. You may cancel it and keep the transcript and existing digests." : summaryCancelled ? "Summary generation was cancelled. Your transcript, existing digests, and sources remain available below until you start another roundtable." : summaryInterrupted ? "The application restarted before summary generation finished. The transcript and all completed digests remain available below." : "Your complete conversation is ready to download. Save anything you want to keep before starting another roundtable."}</p>
+            <h1>{session.state === "CLOSING" ? "Preparing your requested summaries…" : summaryCancelled ? "Session ended · summary cancelled" : summaryInterrupted ? "Session ended · summary interrupted" : "Session concluded"}</h1>
+            <p>{session.state === "CLOSING" ? "The requested summaries are being assembled from the retained evidence and conversation record. You may still cancel and keep the transcript and existing digests." : summaryCancelled ? "Summary generation was cancelled. Your transcript, existing digests, and sources remain available below until you start another roundtable." : summaryInterrupted ? "The application restarted before summary generation finished. The transcript and all completed digests remain available below." : "Summary generation is optional. Download the existing record, request a closeout synthesis, or proceed directly to a new roundtable."}</p>
             {error && <div className="error-banner"><span>{error}</span><button onClick={() => setError("")}>Dismiss</button></div>}
+            {closeoutSummaryAvailable && (
+              <div className="summary-option-panel" aria-labelledby="summary-option-title">
+                <div className="summary-option-copy">
+                  <span className="eyebrow">Optional closeout synthesis</span>
+                  <strong id="summary-option-title">Generate a Summary Digest and one-page learning summary?</strong>
+                  <p>No summary starts automatically. Research is the balanced default; choose Verification only when you want the strongest checking and can allow more time.</p>
+                </div>
+                <div className="summary-mode-options" role="group" aria-label="Closeout summary mode">
+                  {(["research", "verification"] as const).map((profile) => (
+                    <button type="button" key={profile} className={closeoutProfile === profile ? "is-selected" : ""} onClick={() => setCloseoutProfile(profile)} disabled={summaryStarting}>
+                      <strong>{profile === "research" ? "Research" : "Verification"}</strong>
+                      <span>{profile === "research" ? "Default · deep synthesis" : "Maximum checking · slower"}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="summary-route-preview">
+                  <span><strong>Momo</strong> · {closeoutRoute?.participants.Momo?.model || "configured research model"} · {closeoutRoute?.participants.Momo?.reasoning_effort || "medium"} reasoning</span>
+                  <span><strong>Bobby</strong> · {closeoutRoute?.participants.Bobby?.model || "configured research model"} · {closeoutRoute?.participants.Bobby?.reasoning_effort || "medium"} reasoning</span>
+                </div>
+                <button type="button" className="button button-primary summary-generate-button" onClick={startCloseoutSummary} disabled={summaryStarting}>{summaryStarting ? "Starting…" : `Generate in ${closeoutProfile === "research" ? "Research" : "Verification"} mode`}</button>
+                <small>You may ignore this option and use the downloads or Start a new roundtable below.</small>
+              </div>
+            )}
             {session.state === "CLOSING" && (
               <div className="summary-progress-message" role="status" aria-live="polite">
                 <div className="summary-progress-symbol" aria-hidden="true">{closeoutProgress.symbol}</div>
@@ -1095,10 +1136,10 @@ function App() {
               {session.state === "CLOSED" ? <>
                 <a className="button button-primary" href={exportUrl(session.id, "archive")} download onClick={() => setRecordDownloaded(true)}>Save complete archive</a>
                 <a className="button button-secondary" href={exportUrl(session.id, "markdown")} download onClick={() => setRecordDownloaded(true)}>Download readable transcript</a>
-                {onePageSummary ? (
+                {finalSummary && onePageSummary ? (
                   <a className="button button-ghost" href={exportUrl(session.id, "one_page_summary")} download onClick={() => setRecordDownloaded(true)}>Download one-page summary</a>
-                ) : <button className="button button-ghost" disabled>Preparing one-page summary…</button>}
-                <a className="button button-ghost" href={exportUrl(session.id, "summary_digest")} download onClick={() => setRecordDownloaded(true)}>Summary digest</a>
+                ) : finalSummary ? <button className="button button-ghost" disabled>One-page summary unavailable</button> : null}
+                {finalSummary && <a className="button button-ghost" href={exportUrl(session.id, "summary_digest")} download onClick={() => setRecordDownloaded(true)}>Summary digest</a>}
               </> : <><button className="button button-primary" disabled>Preparing downloads…</button><button className="button button-stop" onClick={cancelSummary}>Cancel summary</button></>}
             </div>
             {session.state === "CLOSED" && !evaluation && (

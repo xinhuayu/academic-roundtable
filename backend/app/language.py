@@ -70,9 +70,21 @@ LATIN_LANGUAGE_MARKERS: dict[str, set[str]] = {
     "Italian": {"il", "la", "gli", "che", "per", "con", "una", "della", "studio", "risultati", "salute"},
 }
 
+# Common articles and prepositions are useful only after the text supplies
+# language-specific evidence. Without this guard, English academic PDFs can be
+# mistaken for Portuguese because isolated tokens such as "a", "as", and "o"
+# occur in references, table labels, and extracted formulas.
+LATIN_LANGUAGE_DISTINCTIVE_MARKERS: dict[str, set[str]] = {
+    "Spanish": {"estudio", "estudios", "resultados", "salud", "muestra", "muestras", "hallazgos", "fueron"},
+    "French": {"\u00e9tude", "\u00e9tudes", "r\u00e9sultats", "sant\u00e9", "\u00e9chantillon", "\u00e9chantillons", "selon", "\u00e9taient"},
+    "German": {"studie", "studien", "ergebnisse", "gesundheit", "stichprobe", "stichproben", "wurden", "zwischen"},
+    "Portuguese": {"estudo", "estudos", "resultados", "sa\u00fade", "amostra", "amostras", "achados", "foram"},
+    "Italian": {"studio", "studi", "risultati", "salute", "campione", "campioni", "secondo", "erano"},
+}
+
 
 def detect_document_language(text: str) -> str:
-    """Conservatively detect a dominant document language without external services."""
+    """Detect only clear non-English evidence; ambiguous source text defaults to English."""
     sample = text[:250_000]
     if not sample.strip():
         return "English"
@@ -110,10 +122,15 @@ def detect_document_language(text: str) -> str:
         language: sum(frequencies[word] for word in markers)
         for language, markers in LATIN_LANGUAGE_MARKERS.items()
     }
+    distinctive_scores = {
+        language: sum(frequencies[word] for word in markers)
+        for language, markers in LATIN_LANGUAGE_DISTINCTIVE_MARKERS.items()
+    }
     ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     if ranked and ranked[0][1] >= max(6, len(words) * 0.015):
         runner_up = ranked[1][1] if len(ranked) > 1 else 0
-        if ranked[0][1] >= runner_up + 2:
+        candidate = ranked[0][0]
+        if distinctive_scores[candidate] >= 3 and ranked[0][1] >= runner_up + 2:
             return ranked[0][0]
     return "English"
 

@@ -22,11 +22,11 @@ Ordinary multi-agent chats tend to become long parallel monologues. Academic Rou
 - Live turns use the Topic Digest, latest Conversation Digest, active question, and five recent rounds.
 - Uploaded sources can ground the discussion, while allowed model knowledge is labeled as background knowledge.
 - Sam can choose Fast discussion, Research mode, or Verification mode. Research and Verification route live turns and background digests to configured flagship models with medium or high reasoning and larger, longer budgets; the Fast profile remains the low-latency default.
-- The conversation language is persistent session state. A clearly non-English source can set it automatically, while an explicit request from Sam (for example, “respond in Chinese” or “请用中文回答”) takes precedence for the rest of the session. Every live turn and every digest/summary request receives a protected output-language instruction.
+- The conversation language is persistent session state. Source processing defaults to English and changes language only when the material is clearly non-English. An explicit request from Sam (for example, “respond in Chinese” or “请用中文回答”) takes precedence over the source language for every later live turn, Document/Topic/Conversation Digest, and closeout summary. Every model request receives a protected output-language instruction.
 - The AI LLM mode is an explicit button group on both the landing page and conversation page. The conversation control applies to the next segment and is disabled while the AIs are streaming.
 - The conversation header and participant cards show the model and reasoning route selected for the segment. Every completed or interrupted AI contribution retains its actual `profile`, `model`, and `reasoning_effort` and displays them beside the speaker, so a Research/Verification turn cannot be mistaken for a Fast/Lite turn.
 - Full transcripts and digest history remain available as inputs to final synthesis and in the complete archive. The closeout Summary Digest contains only Momo's comprehensive synthesized learning record; it does not append the Topic Digest, processed-source digests, current Conversation Digest, or earlier digest history.
-- The closeout page shows a highlighted blue status notice while Momo generates the comprehensive Summary Digest and Bobby generates the one-page summary concurrently. Both closeout jobs always use the configured Verification routes with high reasoning—even if the discussion used Fast or Research mode. Each receives the same frozen package containing bounded extracted source text (never the original binary), processed document digests, the Topic Digest, all periodic/requested Conversation Digests, and the complete substantive conversation history. After both jobs settle, the save/download row appears first and **Evaluate learning** follows beneath it; saved rubric results are included in later downloads.
+- Ending a session performs no automatic synthesis. The closeout page first offers an optional mode selector: Research is the default, while Verification is available when Sam explicitly wants maximum checking. If requested, a highlighted blue notice shows Momo generating the comprehensive Summary Digest and Bobby generating the one-page summary concurrently with the selected routes. Each receives the same frozen package containing bounded extracted source text (never the original binary), processed document digests, the Topic Digest, all periodic/requested Conversation Digests, and the complete substantive conversation history. Cancel remains available after generation begins. Archive/transcript downloads and the next-roundtable action never require summary generation or evaluation.
 
 ## Core workflow
 
@@ -181,9 +181,9 @@ The default `.env.example` includes separate model and reasoning settings for th
 
 - **Fast discussion:** current provider defaults; Bobby uses minimal reasoning, the shortest initial deadline, and one timeout-only retry.
 - **Research mode:** GPT-5.6 Sol for Momo and Gemini 3.6 Flash for Bobby by default, medium reasoning, 2.75× live token allowances and 2.5× live deadlines. Bobby additionally receives the 12,288-token Gemini completion floor and 2× Gemini latency margin. Each AI is asked for a focused 140–220-word contribution in two connected paragraphs, including the relevant inferential, methodological, statistical, mathematical, or theoretical detail.
-- **Verification mode:** GPT-5.6 Sol for Momo and Gemini 2.5 Pro for Bobby by default, high reasoning, approximately 2× live allowances and 2.5× live deadlines. Bobby additionally receives the 32,768-token Gemini completion floor and 2.25× Gemini latency margin. Raw PDF/document excerpts are still withheld unless Sam explicitly asks to check the original source.
+- **Verification mode:** GPT-5.6 Sol for Momo and the provider-maintained `gemini-pro-latest` route for Bobby by default, high reasoning, approximately 2× live allowances and 2.5× live deadlines. Bobby additionally receives the 32,768-token Gemini completion floor and 2.25× Gemini latency margin. Raw PDF/document excerpts are still withheld unless Sam explicitly asks to check the original source.
 
-The Bobby defaults deliberately separate workloads: Gemini 3.5 Flash-Lite favors interactive latency, Gemini 3.6 Flash provides the normal deep-research balance, and Gemini 2.5 Pro is reserved for slower source verification. Existing installations with explicit model variables keep those overrides; update or remove the three Bobby model variables to adopt this routing.
+The Bobby defaults deliberately separate workloads: Gemini 3.5 Flash-Lite favors interactive latency, Gemini 3.6 Flash provides the normal deep-research balance, and `gemini-pro-latest` is reserved for slower source verification. The provider currently rejects `gemini-2.5-pro` for new users even when it appears in `/models`, so the maintained Pro alias is the safer default. Existing installations with explicit model variables keep those overrides; update or remove the three Bobby model variables to adopt this routing.
 
 Gemini thinking is not free or fully visible: thought tokens count toward billed output. The protected ceilings prevent premature truncation, while `reasoning_effort` remains the actual cost/latency control. Keep Fast on minimal, Research on medium, and use high Verification selectively.
 
@@ -191,9 +191,9 @@ Use Research or Verification for derivations, statistical model comparisons, sen
 
 ### Conversation language
 
-The session stores a canonical conversation language and how it was selected. A strongly detected non-English uploaded source may set the language when Sam has not chosen one. Sam can change it at any time with a direct instruction such as “continue in Spanish,” “output in Japanese,” or “请用中文回答”; this explicit choice cannot later be overwritten by another document.
+The session stores a canonical conversation language and how it was selected. English is the source-processing default; a strongly detected non-English uploaded source may set another language when Sam has not chosen one. Sam can change it at any time with a direct instruction such as “continue in Spanish,” “output in Japanese,” or “请用中文回答”; this explicit choice cannot later be overwritten by another document and governs every later synthesis task even when the source itself is in another language.
 
-A constrained `<output_language>` instruction is appended to every participant, source-digest, Topic Digest, Conversation Digest, final-summary, and one-page-summary system prompt. Visible prose and summary values must use the selected language, while JSON field names, formulas, proper nouns, and exact quotations remain stable. The active language is shown in the conversation header and recorded in readable exports. Automatic detection is deliberately conservative and may require Sam's explicit instruction for mixed-language, closely related Latin-language, or poor-OCR documents.
+A constrained `<output_language>` instruction is appended to every participant, source-digest, Topic Digest, Conversation Digest, final-summary, and one-page-summary system prompt. Visible prose and summary values must use the selected language, while JSON field names, formulas, proper nouns, and exact quotations remain stable. An actual mid-session language change queues one deduplicated Topic Digest refresh so the visible topic framing follows Sam's choice; later Conversation and closeout digests inherit the same language. The active language is shown in the conversation header and recorded in readable exports. Automatic detection is deliberately conservative and may require Sam's explicit instruction for mixed-language, closely related Latin-language, or poor-OCR documents.
 
 Check connectivity without displaying credentials:
 
@@ -266,7 +266,7 @@ Optional live-provider smoke test (uses API capacity):
 .\.venv\Scripts\python.exe .\scripts\smoke_generation.py --participant Bobby
 ```
 
-The current deterministic backend suite contains 70 passing tests; the frontend suite contains 4 passing tests and the production build is verified. The built-in learning-quality workflow and optional developer comparison tools are documented in [docs/LEARNING-QUALITY-EVALUATION.md](docs/LEARNING-QUALITY-EVALUATION.md). See [docs/CRITICAL-REVIEW.md](docs/CRITICAL-REVIEW.md) for the prioritized agent-system review and [docs/INDEPENDENT-AUDIT.md](docs/INDEPENDENT-AUDIT.md) for the broader audit.
+The current deterministic backend suite contains 91 passing tests; the frontend suite contains 10 passing tests and the production build is verified. The built-in learning-quality workflow and optional developer comparison tools are documented in [docs/LEARNING-QUALITY-EVALUATION.md](docs/LEARNING-QUALITY-EVALUATION.md). See [docs/CRITICAL-REVIEW.md](docs/CRITICAL-REVIEW.md) for the prioritized agent-system review and [docs/INDEPENDENT-AUDIT.md](docs/INDEPENDENT-AUDIT.md) for the broader audit.
 
 ## Conversation memory
 
@@ -287,14 +287,13 @@ Raw PDF/document passages are not included in ordinary rounds. If Sam explicitly
 
 The application intentionally retains one session at a time. Both the interface and direct API creation require explicit reset whenever any prior session record exists, including a closed one:
 
-1. Sam concludes the current session.
-2. The active stream finishes cancelling and the closeout page starts an optional final summary.
-3. Sam may wait for the summary, cancel it, or skip directly to the next-table action.
-4. A blue progress message shows Momo writing the comprehensive Summary Digest and Bobby independently writing the one-page learning summary from the same frozen materials. The shared bounded bundle includes extracted source text with provenance labels, processed source digests, the Topic Digest, all Conversation Digests, and the complete substantive transcript; it excludes uploaded binary files. Both provider calls run concurrently, always use their Verification models with high reasoning, and may be cancelled together.
-5. Once both jobs settle, the closeout page presents the complete archive, readable transcript, one-page summary, and comprehensive Summary Digest downloads, followed by the optional learning-evaluation control. Either summary has its own digest-based fallback, so one slow or failed provider does not erase the other artifact. The Summary Digest is synthesis-only; download the archive to retain the Topic, source, current Conversation, and historical digest records.
-6. Sam may complete and save the built-in learning evaluation; subsequent downloads include it.
-7. If the record has not been saved—or the summary was skipped—the app asks whether Sam wants to stay for optional save/evaluation work.
-8. Selecting **No, start new roundtable** immediately clears prior database history, evaluation, FTS passages, and managed uploads before showing the new-table form.
+1. Sam concludes the current session; the active stream is cancelled and the record closes without starting a provider call.
+2. The closeout page offers Research (default) and Verification summary modes. Sam may ignore this option and proceed directly to downloads or the next table.
+3. If Sam requests synthesis, a blue progress message shows Momo writing the comprehensive Summary Digest and Bobby independently writing the one-page learning summary from the same frozen materials. The shared bounded bundle includes extracted source text with provenance labels, processed source digests, the Topic Digest, all Conversation Digests, and the complete substantive transcript; it excludes uploaded binary files. Both provider calls use the selected mode, run concurrently, and may be cancelled together.
+4. Once both jobs settle, the closeout page presents the complete archive, readable transcript, one-page summary, and comprehensive Summary Digest downloads, followed by the optional learning-evaluation control. Either summary has its own digest-based fallback, so one slow or failed provider does not erase the other artifact. The Summary Digest is synthesis-only; download the archive to retain the Topic, source, current Conversation, and historical digest records.
+5. Sam may complete and save the built-in learning evaluation; subsequent downloads include it.
+6. If the record has not been saved—or the summary was skipped—the app asks whether Sam wants to stay for optional save/evaluation work.
+7. Selecting **No, start new roundtable** immediately clears prior database history, evaluation, FTS passages, and managed uploads before showing the new-table form.
 
 Download the ZIP archive before starting a new session if the source files and full record should be kept.
 
@@ -325,6 +324,9 @@ Runtime data, uploads, databases, environment files, logs, dependency directorie
 | `POST` | `/api/sessions/{id}/interrupt` | Interrupt active generation |
 | `POST` | `/api/sessions/{id}/recap` | Request a conversation digest |
 | `POST` | `/api/sessions/{id}/documents` | Upload and schedule source digestion |
+| `POST` | `/api/sessions/{id}/close` | End immediately without starting synthesis |
+| `POST` | `/api/sessions/{id}/final-summary` | Explicitly start Research or Verification closeout summaries |
+| `POST` | `/api/sessions/{id}/final-summary/cancel` | Cancel active closeout summary work |
 | `GET` | `/api/sessions/{id}/jobs` | Inspect session background jobs |
 | `GET/PUT` | `/api/sessions/{id}/learning-evaluation` | Open or save the session-scoped learning evaluation |
 | `GET` | `/api/sessions/{id}/export` | Download transcript Markdown, Summary Digest, one-page summary, structured JSON, or ZIP after closure |

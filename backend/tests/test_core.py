@@ -133,6 +133,48 @@ def test_chat_completions_forwards_task_reasoning_effort(monkeypatch) -> None:
     assert captured["model"] == "gemini-3.6-flash"
 
 
+def test_chat_completions_ignores_metadata_events_without_choices(monkeypatch) -> None:
+    monkeypatch.setenv("FAKE_GEMINI_KEY", "test-only-key")
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        events = (
+            'data: {"choices":null,"usage":{"prompt_tokens":12}}\n\n'
+            'data: {"choices":[],"model":"gemini-test"}\n\n'
+            'data: {"choices":[{"delta":{"content":"Visible answer"},"finish_reason":"stop"}]}\n\n'
+            'data: [DONE]\n\n'
+        )
+        return httpx.Response(200, text=events, headers={"content-type": "text/event-stream"})
+
+    provider = ProviderConfig(
+        participant="Bobby",
+        base_url="https://example.invalid/v1",
+        model="gemini-test",
+        api_style="chat_completions",
+        api_key_env="FAKE_GEMINI_KEY",
+        reasoning_effort="high",
+    )
+    adapter = LLMAdapter(provider)
+
+    async def scenario() -> str:
+        await adapter.client.aclose()
+        adapter.client = httpx.AsyncClient(
+            base_url=provider.base_url,
+            transport=httpx.MockTransport(handler),
+            headers={"Authorization": "Bearer test-only-key"},
+        )
+        try:
+            return await adapter.generate(GenerationRequest(
+                system="Test",
+                messages=[{"role": "user", "content": "Verify"}],
+                max_output_tokens=4000,
+                reasoning_effort="high",
+            ))
+        finally:
+            await adapter.close()
+
+    assert asyncio.run(scenario()) == "Visible answer"
+
+
 def test_chat_completion_length_finish_is_not_silent_success(monkeypatch) -> None:
     monkeypatch.setenv("FAKE_GEMINI_KEY", "test-only-key")
 
@@ -177,6 +219,46 @@ def test_chat_completion_length_finish_is_not_silent_success(monkeypatch) -> Non
             await adapter.close()
 
     assert asyncio.run(scenario()) == ["An unfinished claim"]
+
+
+def test_streaming_http_error_is_reported_as_provider_error(monkeypatch) -> None:
+    monkeypatch.setenv("FAKE_GEMINI_KEY", "test-only-key")
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            404,
+            json={"error": {"message": "Requested model is unavailable"}},
+        )
+
+    provider = ProviderConfig(
+        participant="Bobby",
+        base_url="https://example.invalid/v1",
+        model="gemini-missing",
+        api_style="chat_completions",
+        api_key_env="FAKE_GEMINI_KEY",
+        reasoning_effort="high",
+    )
+    adapter = LLMAdapter(provider)
+
+    async def scenario() -> None:
+        await adapter.client.aclose()
+        adapter.client = httpx.AsyncClient(
+            base_url=provider.base_url,
+            transport=httpx.MockTransport(handler),
+            headers={"Authorization": "Bearer test-only-key"},
+        )
+        try:
+            with pytest.raises(ProviderError, match="HTTP 404: Requested model is unavailable"):
+                await adapter.generate(GenerationRequest(
+                    system="Test",
+                    messages=[{"role": "user", "content": "Verify"}],
+                    max_output_tokens=4000,
+                    reasoning_effort="high",
+                ))
+        finally:
+            await adapter.close()
+
+    asyncio.run(scenario())
 
 
 def test_anthropic_messages_style_streams_delta_and_handles_max_tokens_limit(monkeypatch) -> None:
@@ -272,7 +354,7 @@ def test_momo_digest_and_participant_budget_defaults(monkeypatch) -> None:
     assert settings.bobby.reasoning_effort == "minimal"
     assert settings.research_bobby_model == "gemini-3.6-flash"
     assert settings.research_bobby_reasoning_effort == "medium"
-    assert settings.verification_bobby_model == "gemini-2.5-pro"
+    assert settings.verification_bobby_model == "gemini-pro-latest"
     assert settings.verification_bobby_reasoning_effort == "high"
     assert settings.gemini_fast_min_output_tokens == 4096
     assert settings.gemini_research_min_output_tokens == 12288
@@ -328,7 +410,7 @@ def test_research_profile_selects_flagship_models_and_expanded_budget(tmp_path: 
         item for item in service.profile_metadata() if item["id"] == "verification"
     )
     assert verification_meta["participants"]["Bobby"] == {
-        "model": "gemini-2.5-pro", "reasoning_effort": "high"
+        "model": "gemini-pro-latest", "reasoning_effort": "high"
     }
 
     async def collect():
@@ -431,6 +513,26 @@ def test_source_language_detection_handles_chinese_and_spanish() -> None:
     assert detect_document_language(spanish) == "Spanish"
 
 
+def test_source_language_detection_keeps_english_academic_text_in_english() -> None:
+    english = (
+        "This study examines cognitive trajectories and subsequent health status in a longitudinal sample. "
+        "The results show that measurement, selection, and missing data affect the interpretation. "
+        "A model is compared with an alternative specification, as reported in the table. "
+    ) * 40
+
+    assert detect_document_language(english) == "English"
+
+
+def test_source_language_detection_defaults_ambiguous_latin_academic_text_to_english() -> None:
+    ambiguous_english = (
+        "A model reports A and O category labels as table notation. "
+        "The analysis compares estimates, confidence intervals, and observed outcomes. "
+        "No translation is requested and the manuscript is written in English. "
+    ) * 30
+
+    assert detect_document_language(ambiguous_english) == "English"
+
+
 def test_source_language_persists_and_sam_can_override_it(tmp_path: Path) -> None:
     db = make_db(tmp_path)
     session = db.create_session("认知轨迹", "深入讨论", 2, False, False)
@@ -470,6 +572,18 @@ def test_source_language_persists_and_sam_can_override_it(tmp_path: Path) -> Non
     overridden = db.get_session(session["id"])
     assert overridden["conversation_language"] == "English"
     assert overridden["language_source"] == "sam"
+
+    service.set_conversation_language(session["id"], "Chinese", "sam")
+    service._adopt_document_language(
+        session["id"],
+        [{"content": "This English-language source reports a longitudinal analysis of cognitive trajectories. " * 30}],
+    )
+    chinese_conversation = db.get_session(session["id"])
+    assert chinese_conversation["conversation_language"] == "Chinese"
+    assert chinese_conversation["language_source"] == "sam"
+    digest_prompt = service._system_prompt(chinese_conversation, "Summarize the source evidence.")
+    assert '<output_language name="Chinese">' in digest_prompt
+    assert "document digests, topic/conversation digests, and closing summaries in Chinese" in digest_prompt
 
 
 def test_output_language_instruction_keeps_json_schema_keys() -> None:
@@ -1114,6 +1228,8 @@ def test_closeout_runs_momo_and_bobby_summaries_concurrently(tmp_path: Path) -> 
     db.update_session(
         session["id"],
         topic_digest={"central_question": "Which explanation is better supported?"},
+        conversation_language="Chinese",
+        language_source="sam",
     )
     db.add_summary_digest(
         session["id"],
@@ -1196,11 +1312,14 @@ def test_closeout_runs_momo_and_bobby_summaries_concurrently(tmp_path: Path) -> 
     assert captured["Momo"].system != captured["Bobby"].system
     assert "independently" in captured["Bobby"].messages[0]["content"]
     assert captured["Momo"].model == "gpt-5.6-sol"
-    assert captured["Momo"].reasoning_effort == "high"
-    assert captured["Bobby"].model == "gemini-2.5-pro"
-    assert captured["Bobby"].reasoning_effort == "high"
-    assert captured["Bobby"].max_output_tokens == 32768
+    assert captured["Momo"].reasoning_effort == "medium"
+    assert captured["Bobby"].model == "gemini-3.6-flash"
+    assert captured["Bobby"].reasoning_effort == "medium"
+    assert captured["Bobby"].max_output_tokens == 12288
+    assert db.get_job(final_job["id"])["payload"]["profile"] == "research"
     for participant in ("Momo", "Bobby"):
+        assert '<output_language name="Chinese">' in captured[participant].system
+        assert "every human-readable string value in Chinese" in captured[participant].system
         closeout_input = captured[participant].messages[0]["content"]
         assert "## Topic Digest" in closeout_input
         assert "Which explanation is better supported?" in closeout_input

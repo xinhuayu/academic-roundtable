@@ -27,6 +27,7 @@ export interface Job {
   progress: number;
   detail: string;
   error?: string;
+  payload?: Record<string, unknown>;
 }
 
 export interface Session {

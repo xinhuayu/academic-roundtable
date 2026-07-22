@@ -54,9 +54,21 @@ describe("buildCloseoutProgress", () => {
 
     expect(progress.symbol).toBe("Σ+1P");
     expect(progress.title).toContain("Momo and Bobby");
-    expect(progress.title).toContain("deep verification mode");
+    expect(progress.title).toContain("Research mode");
     expect(progress.detail).toContain("Momo: Writing Summary Digest");
     expect(progress.detail).toContain("Bobby: Writing one-page summary");
+  });
+
+  it("reports Verification only when Sam selected it", () => {
+    const progress = buildCloseoutProgress(
+      { id: "final", kind: "final_summary", status: "running", progress: 0.4, detail: "Checking claims", payload: { profile: "verification" } },
+      undefined,
+      "verification",
+    );
+
+    expect(progress.title).toContain("Momo is generating");
+    expect(progress.title).toContain("Verification mode");
+    expect(progress.detail).toContain("Checking claims");
   });
 });
 

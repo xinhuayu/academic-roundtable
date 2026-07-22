@@ -20,6 +20,7 @@ from .documents import MAX_UPLOAD_BYTES, extract_dependency_health, safe_extensi
 from .evaluation import RUBRIC, analyze_session, apply_human_ratings, rating_template
 from .language import detect_explicit_language_request, localized_closing, localized_greetings
 from .schemas import (
+    CloseoutSummaryRequest,
     LearningEvaluationSubmission,
     RecapRequest,
     SamMessage,
@@ -475,6 +476,10 @@ async def add_sam_message(session_id: str, payload: SamMessage) -> dict[str, Any
         raise HTTPException(status_code=409, detail="This session has already concluded")
     was_interrupted = await service.interrupt_and_wait(session_id)
     requested_language = detect_explicit_language_request(payload.content)
+    language_changed = bool(
+        requested_language
+        and requested_language != str(current_session.get("conversation_language") or "English")
+    )
     if requested_language:
         service.set_conversation_language(session_id, requested_language, "sam")
     inferred_target = infer_participant_target(payload.content, payload.target)
@@ -497,11 +502,17 @@ async def add_sam_message(session_id: str, payload: SamMessage) -> dict[str, Any
     action: dict[str, Any] = {"message": message, "interrupted": was_interrupted}
     if requested_language:
         action["conversation_language"] = requested_language
-    if is_closing_request(payload.content):
+    closing_requested = is_closing_request(payload.content)
+    if language_changed and not closing_requested:
+        action["topic_digest_job"] = service.request_topic_digest(
+            session_id,
+            "conversation_language_changed",
+        )
+    if closing_requested:
         await service.cancel_session_background_tasks(session_id)
         action["closing_message"] = ensure_closing_message(session_id, inferred_target)
-        action["final_summary_job"] = service.request_final_summary(session_id)
-        action["suggested_action"] = "wait_for_final_summary"
+        database.update_session(session_id, state="CLOSED")
+        action["suggested_action"] = "show_closeout"
     elif is_summary_request(payload.content):
         periodic = True if PERIODIC_PATTERN.search(payload.content) else None
         action["recap_job"] = service.request_recap(session_id, payload.content, periodic)
@@ -525,7 +536,30 @@ async def close_session(session_id: str) -> dict[str, Any]:
     await service.interrupt_and_wait(session_id)
     await service.cancel_session_background_tasks(session_id)
     ensure_closing_message(session_id)
-    service.request_final_summary(session_id)
+    database.update_session(session_id, state="CLOSED")
+    return session_view(session_id)
+
+
+@app.post("/api/sessions/{session_id}/final-summary")
+async def start_final_summary(
+    session_id: str,
+    payload: CloseoutSummaryRequest,
+) -> dict[str, Any]:
+    session = require_session(session_id)
+    if session["state"] == "CLOSING":
+        return session_view(session_id)
+    if session["state"] != "CLOSED":
+        raise HTTPException(status_code=409, detail="End the session before generating closeout summaries")
+    existing = next(
+        (
+            item for item in database.list_messages(session_id)
+            if (item.get("metadata") or {}).get("kind") == "final_summary"
+        ),
+        None,
+    )
+    if existing:
+        return session_view(session_id)
+    service.request_final_summary(session_id, payload.profile)
     return session_view(session_id)
 
 

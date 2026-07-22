@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import secrets
 from collections.abc import AsyncIterator
@@ -23,6 +24,9 @@ from .prompts import (
     SOURCE_DIGEST_SYSTEM_PROMPT,
     TOPIC_DIGEST_SYSTEM_PROMPT,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 ACADEMIC_MOVES = (
@@ -1084,6 +1088,27 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                             round_complete = False
                             stop_for_host = True
                             break
+                        except Exception:
+                            logger.exception("Unexpected live-turn failure for %s", speaker)
+                            partial = "".join(chunks).strip()
+                            if partial:
+                                self.db.add_message(
+                                    session_id,
+                                    speaker,
+                                    partial,
+                                    round_id=round_row["id"],
+                                    status="interrupted",
+                                    metadata={**route_metadata, "timeout_retries": timeout_retries},
+                                )
+                            yield {
+                                "type": "provider_error",
+                                "speaker": speaker,
+                                "message": f"{speaker} encountered an unexpected provider response. Sam has the floor.",
+                                "partial": bool(partial),
+                            }
+                            round_complete = False
+                            stop_for_host = True
+                            break
                         except asyncio.CancelledError:
                             partial = "".join(chunks).strip()
                             if partial:
@@ -1211,13 +1236,41 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
         )
         return job
 
-    def request_final_summary(self, session_id: str) -> dict[str, Any]:
+    def request_topic_digest(self, session_id: str, reason: str = "requested") -> dict[str, Any]:
+        """Queue one deduplicated Topic Digest refresh for the current session state."""
+        active = next(
+            (
+                job for job in self.db.list_jobs(session_id)
+                if job["kind"] == "topic_digest" and job["status"] in {"queued", "running"}
+            ),
+            None,
+        )
+        if active:
+            return active
+        session = self.db.get_session(session_id)
+        if not session:
+            raise ValueError("Session not found")
+        job = self.db.create_job(
+            session_id,
+            "topic_digest",
+            {
+                "through_round": session["completed_rounds"],
+                "reason": reason,
+                "conversation_language": session.get("conversation_language") or "English",
+            },
+        )
+        self._spawn(self.run_topic_digest(job["id"], session_id), session_id)
+        return job
+
+    def request_final_summary(self, session_id: str, profile: str = "research") -> dict[str, Any]:
+        if profile not in {"research", "verification"}:
+            raise ValueError("Closeout summary profile must be research or verification")
         if self.db.has_active_job(session_id, "final_summary"):
             jobs = self.db.list_jobs(session_id)
             return next(job for job in jobs if job["kind"] == "final_summary" and job["status"] in {"queued", "running"})
-        job = self.db.create_job(session_id, "final_summary", {})
+        job = self.db.create_job(session_id, "final_summary", {"profile": profile})
         self.db.update_session(session_id, state="CLOSING")
-        task = self._spawn(self.run_final_summary(job["id"], session_id), session_id)
+        task = self._spawn(self.run_final_summary(job["id"], session_id, profile), session_id)
         self.final_summary_tasks[session_id] = task
 
         def clear_task(completed: asyncio.Task[Any]) -> None:
@@ -1370,32 +1423,43 @@ Transcript:
         except Exception as exc:  # background boundary
             self.db.update_job(job_id, status="failed", error=str(exc)[:500], detail="Digest failed")
 
-    async def run_final_summary(self, job_id: str, session_id: str) -> None:
+    async def run_final_summary(
+        self,
+        job_id: str,
+        session_id: str,
+        profile: str = "research",
+    ) -> None:
         # A close request may arrive while an AI segment is still unwinding.
         # Waiting for the session lock ensures interrupted text is persisted before
         # the final summary snapshots messages and digest history.
         async with self._lock(session_id):
-            await self._run_final_summary_locked(job_id, session_id)
+            await self._run_final_summary_locked(job_id, session_id, profile)
 
-    async def _run_final_summary_locked(self, job_id: str, session_id: str) -> None:
+    async def _run_final_summary_locked(
+        self,
+        job_id: str,
+        session_id: str,
+        profile: str = "research",
+    ) -> None:
         self.db.update_job(job_id, status="running", progress=0.1, detail="Collecting summary history")
         one_page_started = False
         try:
             session = self.db.get_session(session_id)
+            summary_session = {**session, "conversation_profile": profile}
             summary_context = self._build_closeout_summary_context(session)
             # Momo owns the durable critical synthesis even when another provider
             # is selected for routine periodic digests.
             final_adapter = self.adapters.get("Momo")
             final_profile = self._profile_parameters(
-                session,
+                summary_session,
                 final_adapter.config.participant,
-                source_verification=True,
+                source_verification=False,
                 task="digest",
             )
             source_token_multiplier, source_timeout_multiplier = self._source_boosts(session_id)
             request = GenerationRequest(
                 system=self._system_prompt(
-                    session,
+                    summary_session,
                     *(
                         FINAL_SUMMARY_SYSTEM_PROMPT,
                         self.momo_comprehensive_summary_skill,
@@ -1417,12 +1481,12 @@ Transcript:
                     final_profile["digest_timeout_multiplier"],
                 ),
             )
-            one_page_job = self.db.create_job(session_id, "one_page_summary", {})
+            one_page_job = self.db.create_job(session_id, "one_page_summary", {"profile": profile})
             one_page_started = True
             self.db.update_job(
                 job_id,
                 progress=0.4,
-                detail="Momo and Bobby are writing both summaries in deep Verification mode",
+                detail=f"Momo and Bobby are writing both summaries in {profile.title()} mode",
             )
 
             async def generate_final_summary() -> str:
@@ -1441,6 +1505,7 @@ Transcript:
                     "",
                     summary_context,
                     job_id=one_page_job["id"],
+                    profile=profile,
                 ),
                 return_exceptions=True,
             )
@@ -1509,6 +1574,7 @@ Transcript:
                         fallback,
                         f"Final summary fallback:\n\n{fallback}",
                         job_id=None,
+                        profile=profile,
                     )
                 self.db.update_session(session_id, state="CLOSED")
             self.db.update_job(
@@ -1525,19 +1591,20 @@ Transcript:
         final_summary: str,
         digest_text: str,
         job_id: str | None = None,
+        profile: str = "research",
     ) -> None:
         session = self.db.get_session(session_id)
         if not session:
             return
         one_page_job_id = job_id
         if one_page_job_id is None:
-            one_page_job = self.db.create_job(session_id, "one_page_summary", {})
+            one_page_job = self.db.create_job(session_id, "one_page_summary", {"profile": profile})
             one_page_job_id = one_page_job["id"]
         self.db.update_job(
             one_page_job_id,
             status="running",
             progress=0.1,
-            detail="Assembling Bobby's deep-Verification one-page summary source",
+            detail=f"Assembling Bobby's {profile.title()}-mode one-page summary source",
         )
         try:
             source_token_multiplier, source_timeout_multiplier = self._source_boosts(session_id)
@@ -1556,8 +1623,9 @@ Transcript:
                 f"Frozen digest/transcript context (background knowledge, inferences, and open questions included):\n{background_and_inferences}"
             )
             persona = PERSONAS["Bobby"]
+            summary_session = {**session, "conversation_profile": profile}
             system = self._system_prompt(
-                session,
+                summary_session,
                 *[
                     persona,
                     ONE_PAGE_SUMMARY_SYSTEM_PROMPT,
@@ -1565,9 +1633,9 @@ Transcript:
                 ]
             )
             summary_profile = self._profile_parameters(
-                session,
+                summary_session,
                 "Bobby",
-                source_verification=True,
+                source_verification=False,
                 task="digest",
             )
             one_page_tokens = self._scaled_tokens(
@@ -1599,7 +1667,7 @@ Transcript:
             self.db.update_job(
                 one_page_job_id,
                 progress=0.45,
-                detail="Bobby is writing the one-page summary in deep Verification mode",
+                detail=f"Bobby is writing the one-page summary in {profile.title()} mode",
             )
             async with asyncio.timeout(
                 self._scaled_timeout(

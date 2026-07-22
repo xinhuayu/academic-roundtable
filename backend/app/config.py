@@ -103,7 +103,7 @@ class Settings:
     research_momo_reasoning_effort: str = "medium"
     research_bobby_reasoning_effort: str = "medium"
     verification_momo_model: str = "gpt-5.6-sol"
-    verification_bobby_model: str = "gemini-2.5-pro"
+    verification_bobby_model: str = "gemini-pro-latest"
     verification_momo_reasoning_effort: str = "high"
     verification_bobby_reasoning_effort: str = "high"
     research_live_token_multiplier: float = 2.75
@@ -213,7 +213,7 @@ def get_settings() -> Settings:
         research_momo_reasoning_effort=os.getenv("RESEARCH_MOMO_REASONING_EFFORT", "medium"),
         research_bobby_reasoning_effort=os.getenv("RESEARCH_BOBBY_REASONING_EFFORT", "medium"),
         verification_momo_model=os.getenv("VERIFICATION_MOMO_MODEL", "gpt-5.6-sol"),
-        verification_bobby_model=os.getenv("VERIFICATION_BOBBY_MODEL", "gemini-2.5-pro"),
+        verification_bobby_model=os.getenv("VERIFICATION_BOBBY_MODEL", "gemini-pro-latest"),
         verification_momo_reasoning_effort=os.getenv("VERIFICATION_MOMO_REASONING_EFFORT", "high"),
         verification_bobby_reasoning_effort=os.getenv("VERIFICATION_BOBBY_REASONING_EFFORT", "high"),
         research_live_token_multiplier=_bound_multiplier(

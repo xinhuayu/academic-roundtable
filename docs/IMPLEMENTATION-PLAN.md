@@ -7,7 +7,7 @@
 
 # Academic Roundtable: Lean Implementation Plan
 
-Last reviewed: 2026-07-20
+Last reviewed: 2026-07-22
 
 ## Product outcome
 
@@ -51,7 +51,7 @@ The project uses short, testable increments. It does not add multi-user or cloud
 - Automatic digest scheduling every five or six completed rounds
 - Natural-language and interface-triggered recaps
 - Append-only digest history for final synthesis and export
-- Final summary generated at session close
+- Append-only digest history available to optional closeout synthesis and export; ending a session itself performs no summary call
 
 ### 4. Minimal document grounding — complete
 
@@ -76,9 +76,9 @@ The project uses short, testable increments. It does not add multi-user or cloud
 - Local-only System digestion notices in the transcript, derived from queued/running topic or conversation digest jobs and removed automatically without persistence
 - Participant-name highlighting and distinct background-knowledge styling
 - Digests and periodic summaries below the conversation
-- Close-session page with highlighted blue final-summary and one-page-summary progress stages, comprehensive Summary Digest download, one-page summary download, summary cancellation, and digest-based fallback wrap-up
+- Close-session page with a top-level Research-default / Verification-opt-in summary selector, highlighted blue progress stages after generation starts, comprehensive Summary Digest download, one-page summary download, summary cancellation, and digest-based fallback wrap-up
 - Save/download row before the optional **Evaluate learning** action
-- Concurrent deep-verification closeout: Momo authors the synthesis-only comprehensive Summary Digest with GPT-5.6 Sol/high while Bobby independently authors the one-page learning summary with Gemini 2.5 Pro/high from the same frozen materials, regardless of the live discussion mode. Their shared bounded snapshot contains extracted source text, processed document digests, the Topic Digest, all periodic/requested Conversation Digests, and the complete substantive transcript; original binary files are never transmitted. Readable transcript and ZIP archive downloads remain available, while Topic, processed-source, latest Conversation, historical digest, and structured session JSON stay inside the archive
+- Optional concurrent closeout: after Sam chooses a mode, Momo authors the synthesis-only comprehensive Summary Digest while Bobby independently authors the one-page learning summary from the same frozen materials. Research/medium is the default choice; Verification/high is explicit. Their shared bounded snapshot contains extracted source text, processed document digests, the Topic Digest, all periodic/requested Conversation Digests, and the complete substantive transcript; original binary files are never transmitted. Readable transcript and ZIP archive downloads remain available without requesting synthesis, while Topic, processed-source, latest Conversation, historical digest, and structured session JSON stay inside the archive
 - Guarded one-session retention, optional save/evaluation handoff, and safe one-choice purge before replacement
 
 ### Sam voice-input increment — complete
@@ -108,10 +108,13 @@ The independent audit added:
 - Regression tests for timeout recovery and lifecycle safety
 - Exact server-side one-session enforcement for active and closed retained sessions
 - Read-only closing/closed records, with recap and source upload rejected after closeout begins
-- Summary cancellation constrained to closeout and propagated across the concurrent, Verification-profile Momo final-summary and Bobby one-page-summary jobs
+- Summary generation starts only through the closed-session endpoint after explicit mode selection; cancellation is constrained to active closeout synthesis and propagated across the concurrent Momo final-summary and Bobby one-page-summary jobs
 - Active recap-job reuse to avoid duplicate provider work, plus latest-completed one-page export selection
 - Accurate UI disclosure that extracted source sections are transmitted to the configured model server for digestion
 - Honest documentation of deferred reliability and production features
+- Conservative Latin-script language detection that requires distinctive vocabulary before switching an English-default session
+- Defensive provider streaming that converts malformed metadata and streaming HTTP failures into visible, recoverable events
+- Live-validated replacement of the retired-for-new-users `gemini-2.5-pro` route with `gemini-pro-latest`
 
 ## Agent reliability review increment — complete
 
@@ -145,7 +148,7 @@ The prioritized rationale and postponed work are recorded in [CRITICAL-REVIEW.md
 - Fast remains the default and preserves the current low-latency provider models and concise live turns.
 - Fast Bobby uses Gemini minimal reasoning with a 90-second effective first-token deadline and nine-minute total ceiling. Timeout recovery is attempted once with a 1.5× retry-only deadline.
 - Research routes Momo to GPT-5.6 Sol and Bobby to Gemini 3.6 Flash by default, with medium reasoning, 2.75× live token allowances, 2.5× live deadlines, a focused 140–220-word target, and 1.5× background digest deadlines. Gemini adds a 12,288-token completion floor and 2× deadline margin.
-- Verification routes Momo to GPT-5.6 Sol and Bobby to Gemini 2.5 Pro with high reasoning, 2× live token allowance, and 2.5× live deadlines; Gemini adds a 32,768-token completion floor and 2.25× deadline margin. Explicit requests to check the original source automatically use this profile for one segment.
+- Verification routes Momo to GPT-5.6 Sol and Bobby to `gemini-pro-latest` with high reasoning, 2× live token allowance, and 2.5× live deadlines; Gemini adds a 32,768-token completion floor and 2.25× deadline margin. Explicit requests to check the original source automatically use this profile for one segment.
 - Source excerpts remain excluded from ordinary rounds. Verification mode alone increases reasoning; raw excerpts are still added only when Sam explicitly requests the original source.
 - The landing page and session settings expose the profile selector, `/api/meta` publishes the profile catalog, and `.env.example` documents all override variables.
 - The landing page and conversation header expose explicit AI LLM mode buttons; the in-session choice applies to the next segment and is disabled during active streaming.
@@ -155,8 +158,8 @@ The prioritized rationale and postponed work are recorded in [CRITICAL-REVIEW.md
 ## Persistent multilingual conversation — complete
 
 - Added `conversation_language` and `language_source` to session state with additive migration support.
-- A conservative source-language detector can initialize non-English sessions after extraction; Sam's explicit language instruction has permanent precedence over later uploads.
-- A constrained output-language tag is appended to every Momo/Bobby live turn and every source, Topic, Conversation, final, and one-page synthesis task.
+- Source processing defaults to English. A conservative detector initializes another language only from clear non-English evidence; Sam's explicit conversation-language instruction has permanent precedence over source language and later uploads.
+- A constrained output-language tag is appended to every Momo/Bobby live turn and every source, Topic, Conversation, final, and one-page synthesis task; an actual mid-session language switch queues one deduplicated Topic Digest refresh.
 - Localized greetings and closeout text are available for common languages; the UI header and readable exports disclose the active language.
 - JSON keys, formulas, proper nouns, and exact quotations remain stable while visible prose and JSON string values use the selected language.
 - English and Chinese recap, closeout, source-verification, and host-question control forms have deterministic coverage. Additional intent-language variants remain a fixture-driven extension.

@@ -49,6 +49,11 @@ export const api = {
     request<{ interrupted: boolean }>(`/api/sessions/${id}/interrupt`, { method: "POST" }),
   closeSession: (id: string) =>
     request<Session>(`/api/sessions/${id}/close`, { method: "POST" }),
+  startFinalSummary: (id: string, profile: "research" | "verification") =>
+    request<Session>(`/api/sessions/${id}/final-summary`, {
+      method: "POST",
+      body: JSON.stringify({ profile }),
+    }),
   cancelFinalSummary: (id: string) =>
     request<Session>(`/api/sessions/${id}/final-summary/cancel`, { method: "POST" }),
   getLearningEvaluation: (id: string) =>
