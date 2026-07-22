@@ -144,7 +144,7 @@ Each prompt section also has an explicit input ceiling. Oversized material is vi
 
 ```mermaid
 stateDiagram-v2
-    [*] --> HUMAN_FLOOR: session created and greetings shown
+    [*] --> HUMAN_FLOOR: Start roundtable — session created and greetings shown
     HUMAN_FLOOR --> AI_SEGMENT_RUNNING: Sam speaks or chooses continue
     AI_SEGMENT_RUNNING --> INTERRUPTING: Sam interrupts or submits a message
     INTERRUPTING --> HUMAN_FLOOR: stream unwinds and partial text is saved
@@ -152,7 +152,9 @@ stateDiagram-v2
     HUMAN_FLOOR --> CLOSING: Sam concludes
     AI_SEGMENT_RUNNING --> CLOSING: Sam concludes during streaming
     CLOSING --> CLOSED: summary completes, fails safely, or Sam cancels it
-    CLOSED --> [*]: downloads offered; next session may purge the record
+    state "Downloads offered<br/>Next session may purge the record" as SESSION_COMPLETE
+    CLOSED --> SESSION_COMPLETE
+    SESSION_COMPLETE --> [*]
 ```
 
 `New roundtable` on the landing page now performs a fresh session-list check immediately before creating a new session; if any prior local sessions exist, the UI prompts for confirmation and only proceeds with `force_reset=true`.
