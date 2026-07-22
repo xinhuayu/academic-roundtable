@@ -608,6 +608,20 @@ class Database:
                     (passage_id, document_id, filename, page_number, content),
                 )
 
+    def list_passages(self, session_id: str) -> list[dict[str, Any]]:
+        """Return extracted source text in stable document and passage order."""
+        with self.connect() as db:
+            rows = db.execute(
+                """SELECT p.id AS passage_id, p.document_id, d.filename,
+                          p.page_number, p.section, p.content, p.ordinal
+                   FROM passages p
+                   JOIN documents d ON d.id = p.document_id
+                   WHERE d.session_id = ?
+                   ORDER BY d.created_at, p.ordinal""",
+                (session_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def search_passages(self, session_id: str, query: str, limit: int = 6) -> list[dict[str, Any]]:
         terms = [term for term in query.replace('"', " ").split() if len(term) > 2][:12]
         if not terms:

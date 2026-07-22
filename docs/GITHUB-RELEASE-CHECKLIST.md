@@ -15,7 +15,7 @@
 - [ ] Confirm `.env.local` is ignored and absent from `git status` and `git ls-files`.
 - [ ] Scan the full candidate commit and history for secrets.
 - [ ] Confirm `data/`, uploads, exports, logs, dependencies, caches, and build artifacts are untracked.
-- [ ] Run **87 backend tests**, the frontend test suite, and the frontend production build from the clean copy.
+- [ ] Run **88 backend tests**, the frontend test suite, and the frontend production build from the clean copy.
 - [ ] Review README limitations and security warnings.
 - [ ] Configure private vulnerability reporting before inviting outside users.
 
@@ -29,8 +29,8 @@
 
 ## Latest prepared-archive verification (2026-07-22)
 
-- [x] 87 backend tests passed.
-- [x] Frontend Vitest suite passed (7 tests, including actual model-route labels, translated provenance labels, ephemeral digest and timeout-retry messages, landing-page multi-source staging, and Sam voice privacy/review states).
+- [x] 88 backend tests passed.
+- [x] Frontend Vitest suite passed (8 tests, including actual model-route labels, translated provenance labels, ephemeral digest and timeout-retry messages, parallel Momo/Bobby closeout status, landing-page multi-source staging, and Sam voice privacy/review states).
 - [x] Frontend production build passed.
 - [x] Candidate source files passed checks for common OpenAI, Google, and Anthropic key formats, private-key blocks, and developer-specific absolute paths.
 - [x] Archive entry inspection found no `.env.local`, runtime database, uploaded source, transcript, log, cache, dependency directory, or compiled build output.
@@ -42,6 +42,7 @@
 - [x] Gemini live requests have bounded hidden-thinking reserves, model-aware timeout margins, and regression coverage for Fast, Verification, and the 65,536-token cap.
 - [x] Live timeout failures trigger one bounded retry with a temporary System notice, a retry-only deadline increase, partial-output reset, and no retry notice in persistence or digest context.
 - [x] An AI that exhausts its retry hands the turn to the other AI with a visible temporary System notice and a no-guessing recovery prompt; Sam receives the floor only if the fallback also fails.
+- [x] Closeout creates Momo's comprehensive Summary Digest and Bobby's independently prompted one-page learning summary concurrently from one frozen snapshot containing bounded extracted text, processed document digests, the Topic Digest, complete Conversation Digest history, and complete substantive transcript; both force their high-reasoning Verification routes, cancellation covers both jobs, and each artifact retains fallback behavior.
 - [x] Rebuilt GitHub submission archive has 59 entries and contains no forbidden local/runtime files. Record the final SHA-256 from the packaging run before publication.
 - [x] Current frontend source includes explicit AI LLM mode buttons on the landing page and conversation header.
 

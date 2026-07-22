@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { buildDigestStatusMessages, FormattedMessageContent, NewSessionForm, TranscriptMessage, VoiceInputControl } from "./App";
+import { buildCloseoutProgress, buildDigestStatusMessages, FormattedMessageContent, NewSessionForm, TranscriptMessage, VoiceInputControl } from "./App";
 
 
 describe("FormattedMessageContent", () => {
@@ -42,6 +42,21 @@ describe("buildDigestStatusMessages", () => {
       temporary: true,
       metadata: { kind: "ephemeral_digest_status", job_id: "topic-1" },
     });
+  });
+});
+
+describe("buildCloseoutProgress", () => {
+  it("identifies Momo and Bobby as simultaneous closeout authors", () => {
+    const progress = buildCloseoutProgress(
+      { id: "final", kind: "final_summary", status: "running", progress: 0.4, detail: "Writing Summary Digest" },
+      { id: "one", kind: "one_page_summary", status: "running", progress: 0.4, detail: "Writing one-page summary" },
+    );
+
+    expect(progress.symbol).toBe("Σ+1P");
+    expect(progress.title).toContain("Momo and Bobby");
+    expect(progress.title).toContain("deep verification mode");
+    expect(progress.detail).toContain("Momo: Writing Summary Digest");
+    expect(progress.detail).toContain("Bobby: Writing one-page summary");
   });
 });
 

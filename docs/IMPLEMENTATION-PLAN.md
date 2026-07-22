@@ -77,7 +77,7 @@ The project uses short, testable increments. It does not add multi-user or cloud
 - Digests and periodic summaries below the conversation
 - Close-session page with highlighted blue final-summary and one-page-summary progress stages, comprehensive Summary Digest download, one-page summary download, summary cancellation, and digest-based fallback wrap-up
 - Save/download row before the optional **Evaluate learning** action
-- Momo-authored synthesis-only comprehensive Summary Digest using a dedicated critical-synthesis skill, plus a separate one-page learning summary (key concepts, main issues, strategies, research priorities), readable transcript, and ZIP archive downloads; Topic, processed-source, latest Conversation, historical digest, and structured session JSON remain inside the archive
+- Concurrent deep-verification closeout: Momo authors the synthesis-only comprehensive Summary Digest with GPT-5.6 Sol/high while Bobby independently authors the one-page learning summary with Gemini 2.5 Pro/high from the same frozen materials, regardless of the live discussion mode. Their shared bounded snapshot contains extracted source text, processed document digests, the Topic Digest, all periodic/requested Conversation Digests, and the complete substantive transcript; original binary files are never transmitted. Readable transcript and ZIP archive downloads remain available, while Topic, processed-source, latest Conversation, historical digest, and structured session JSON stay inside the archive
 - Guarded one-session retention, optional save/evaluation handoff, and safe one-choice purge before replacement
 
 ### Sam voice-input increment — complete
@@ -106,7 +106,7 @@ The independent audit added:
 - Regression tests for timeout recovery and lifecycle safety
 - Exact server-side one-session enforcement for active and closed retained sessions
 - Read-only closing/closed records, with recap and source upload rejected after closeout begins
-- Summary cancellation constrained to closeout and propagated across final-summary and one-page-summary jobs
+- Summary cancellation constrained to closeout and propagated across the concurrent, Verification-profile Momo final-summary and Bobby one-page-summary jobs
 - Active recap-job reuse to avoid duplicate provider work, plus latest-completed one-page export selection
 - Accurate UI disclosure that extracted source sections are transmitted to the configured model server for digestion
 - Honest documentation of deferred reliability and production features

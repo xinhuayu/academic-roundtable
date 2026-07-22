@@ -1072,20 +1072,27 @@ def test_final_summary_can_be_cancelled_without_losing_session_record(tmp_path: 
     service = RoundtableService(settings, db, registry)
 
     async def scenario():
-        started = asyncio.Event()
+        momo_started = asyncio.Event()
+        bobby_started = asyncio.Event()
 
-        async def blocked_generate(request: GenerationRequest):
-            started.set()
+        async def blocked_momo_generate(request: GenerationRequest):
+            momo_started.set()
             await asyncio.Event().wait()
             return "unreachable"
 
-        # Momo always owns the comprehensive final Summary Digest, independent
-        # of the provider selected for routine periodic digests.
-        registry.items["Momo"].generate = blocked_generate
+        async def blocked_bobby_generate(request: GenerationRequest):
+            bobby_started.set()
+            await asyncio.Event().wait()
+            return "unreachable"
+
+        registry.items["Momo"].generate = blocked_momo_generate
+        registry.items["Bobby"].generate = blocked_bobby_generate
         job = service.request_final_summary(session["id"])
-        one_page_job = db.create_job(session["id"], "one_page_summary", {})
-        db.update_job(one_page_job["id"], status="running", detail="Writing one-page summary")
-        await started.wait()
+        await asyncio.gather(momo_started.wait(), bobby_started.wait())
+        one_page_job = next(
+            item for item in db.list_jobs(session["id"])
+            if item["kind"] == "one_page_summary"
+        )
         assert db.get_session(session["id"])["state"] == "CLOSING"
         assert await service.cancel_final_summary(session["id"]) is True
         return job, one_page_job
@@ -1097,6 +1104,117 @@ def test_final_summary_can_be_cancelled_without_losing_session_record(tmp_path: 
     assert [message["content"] for message in db.list_messages(session["id"])] == [
         "Let us stop here."
     ]
+
+
+def test_closeout_runs_momo_and_bobby_summaries_concurrently(tmp_path: Path) -> None:
+    db = make_db(tmp_path)
+    session = db.create_session("Parallel synthesis", "Finish faster", 2, False, False)
+    db.add_message(session["id"], "Sam", "Compare the explanations and identify priorities.")
+    db.add_message(session["id"], "Momo", "The main assumption needs qualification.")
+    db.update_session(
+        session["id"],
+        topic_digest={"central_question": "Which explanation is better supported?"},
+    )
+    db.add_summary_digest(
+        session["id"],
+        "conversation",
+        1,
+        {"agreements": ["Evidence quality matters"]},
+    )
+    source_path = tmp_path / "source.txt"
+    source_path.write_text("A source passage about longitudinal evidence.", encoding="utf-8")
+    document = db.add_document(
+        session["id"], "source.txt", str(source_path), "text/plain"
+    )
+    db.update_document(
+        document["id"],
+        status="ready",
+        digest="Processed source finding: longitudinal follow-up supports the comparison.",
+    )
+    db.replace_passages(
+        document["id"],
+        "source.txt",
+        [{"content": "Extracted evidence with a reported follow-up interval.", "page_number": 2}],
+    )
+    provider = ProviderConfig(
+        participant="Momo", base_url="https://example.invalid/v1", model="fake",
+        api_style="responses", api_key_env="FAKE_KEY", reasoning_effort="low",
+    )
+    settings = Settings(
+        project_root=tmp_path, data_dir=tmp_path, uploads_dir=tmp_path / "uploads",
+        db_path=tmp_path / "test.sqlite3", host="127.0.0.1", port=8765,
+        digest_provider="momo", digest_interval=6, recent_round_count=5,
+        host_checkpoint_interval=3, live_max_output_tokens=350,
+        conversation_digest_max_output_tokens=4000, topic_digest_max_output_tokens=3000,
+        source_digest_max_output_tokens=4000, momo=provider, bobby=provider,
+    )
+    registry = FakeRegistry()
+    registry.items["Bobby"].config = ProviderConfig(
+        participant="Bobby", base_url="https://example.invalid/v1",
+        model="gemini-3.5-flash-lite", api_style="chat_completions",
+        api_key_env="FAKE_KEY", reasoning_effort="minimal",
+        stream_idle_timeout=60, total_timeout=360,
+    )
+    service = RoundtableService(settings, db, registry)
+    momo_started = asyncio.Event()
+    bobby_started = asyncio.Event()
+    release = asyncio.Event()
+    captured: dict[str, GenerationRequest] = {}
+
+    async def momo_summary(request: GenerationRequest) -> str:
+        captured["Momo"] = request
+        momo_started.set()
+        await release.wait()
+        return "# Comprehensive Summary Digest\n\nA critical synthesis."
+
+    async def bobby_summary(request: GenerationRequest) -> str:
+        captured["Bobby"] = request
+        bobby_started.set()
+        await release.wait()
+        return "## Key concepts\n- Concept\n\n## Main issues\n- Issue\n\n## Strategies to solve key problems\n- Strategy\n\n## Research priorities\n- Priority"
+
+    registry.items["Momo"].generate = momo_summary
+    registry.items["Bobby"].generate = bobby_summary
+
+    async def scenario():
+        final_job = service.request_final_summary(session["id"])
+        task = service.final_summary_tasks[session["id"]]
+        await asyncio.wait_for(
+            asyncio.gather(momo_started.wait(), bobby_started.wait()),
+            timeout=0.5,
+        )
+        release.set()
+        await task
+        return final_job
+
+    final_job = asyncio.run(scenario())
+    jobs = db.list_jobs(session["id"])
+    one_page_job = next(item for item in jobs if item["kind"] == "one_page_summary")
+    assert db.get_job(final_job["id"])["status"] == "complete"
+    assert db.get_job(one_page_job["id"])["status"] == "complete"
+    assert db.get_session(session["id"])["state"] == "CLOSED"
+    assert captured["Momo"].system != captured["Bobby"].system
+    assert "independently" in captured["Bobby"].messages[0]["content"]
+    assert captured["Momo"].model == "gpt-5.6-sol"
+    assert captured["Momo"].reasoning_effort == "high"
+    assert captured["Bobby"].model == "gemini-2.5-pro"
+    assert captured["Bobby"].reasoning_effort == "high"
+    assert captured["Bobby"].max_output_tokens == 32768
+    for participant in ("Momo", "Bobby"):
+        closeout_input = captured[participant].messages[0]["content"]
+        assert "## Topic Digest" in closeout_input
+        assert "Which explanation is better supported?" in closeout_input
+        assert "## Processed document digests" in closeout_input
+        assert "longitudinal follow-up supports the comparison" in closeout_input
+        assert "## Extracted source text" in closeout_input
+        assert "Extracted evidence with a reported follow-up interval" in closeout_input
+        assert "## Periodic and requested summary digests" in closeout_input
+        assert "Evidence quality matters" in closeout_input
+        assert "## Complete substantive conversation history" in closeout_input
+        assert "Sam: Compare the explanations and identify priorities." in closeout_input
+        assert "Momo: The main assumption needs qualification." in closeout_input
+    assert any(item["kind"] == "final" for item in db.list_summary_digests(session["id"]))
+    assert any(item["kind"] == "one_page" for item in db.list_summary_digests(session["id"]))
 
 
 def test_restart_reconciliation_clears_stranded_runtime_state(tmp_path: Path) -> None:

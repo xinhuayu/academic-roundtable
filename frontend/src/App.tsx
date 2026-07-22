@@ -123,6 +123,27 @@ export function buildDigestStatusMessages(jobs: Job[]): Message[] {
     }));
 }
 
+export function buildCloseoutProgress(
+  finalJob?: Job,
+  onePageJob?: Job,
+): { symbol: string; title: string; detail: string } {
+  if (finalJob && onePageJob) {
+    return {
+      symbol: "Σ+1P",
+      title: "Momo and Bobby are summarizing in deep verification mode",
+      detail: `Momo: ${finalJob.detail}. Bobby: ${onePageJob.detail}.`,
+    };
+  }
+  if (onePageJob) {
+    return { symbol: "1P", title: "Bobby is generating the one-page summary", detail: onePageJob.detail };
+  }
+  return {
+    symbol: "Σ",
+    title: "Momo is generating the Summary Digest",
+    detail: finalJob?.detail || "Reviewing the retained conversation and digest history",
+  };
+}
+
 function Participant({ health, route }: { health: ProviderHealth; route?: ActiveModelRoute }) {
   const tone = health.reachable ? "ready" : health.configured ? "warning" : "danger";
   return (
@@ -500,6 +521,10 @@ function App() {
   const activeJobs = useMemo(() => session?.jobs.filter((job) => ["queued", "running"].includes(job.status)) ?? [], [session?.jobs]);
   const activeFinalSummaryJob = activeJobs.find((job) => job.kind === "final_summary");
   const activeOnePageSummaryJob = activeJobs.find((job) => job.kind === "one_page_summary");
+  const closeoutProgress = useMemo(
+    () => buildCloseoutProgress(activeFinalSummaryJob, activeOnePageSummaryJob),
+    [activeFinalSummaryJob, activeOnePageSummaryJob],
+  );
   const recapActive = activeJobs.some((job) => job.kind === "conversation_digest");
   const digestStatusMessages = useMemo(() => buildDigestStatusMessages(activeJobs), [activeJobs]);
   const conversationMessages = useMemo(() => session?.messages.filter((message) => !(message.speaker === "System" && message.metadata.kind === "recap")) ?? [], [session?.messages]);
@@ -938,10 +963,10 @@ function App() {
             {error && <div className="error-banner"><span>{error}</span><button onClick={() => setError("")}>Dismiss</button></div>}
             {session.state === "CLOSING" && (
               <div className="summary-progress-message" role="status" aria-live="polite">
-                <div className="summary-progress-symbol" aria-hidden="true">{activeOnePageSummaryJob ? "1P" : "Σ"}</div>
+                <div className="summary-progress-symbol" aria-hidden="true">{closeoutProgress.symbol}</div>
                 <div>
-                  <strong>{activeOnePageSummaryJob ? "Generating the one-page summary" : "Summarizing the session materials"}<span className="summary-progress-dots" aria-hidden="true">......</span></strong>
-                  <span>{activeOnePageSummaryJob?.detail || activeFinalSummaryJob?.detail || "Reviewing the retained conversation and digest history"}. Please wait; you may cancel summary generation if you do not need it.</span>
+                  <strong>{closeoutProgress.title}<span className="summary-progress-dots" aria-hidden="true">......</span></strong>
+                  <span>{closeoutProgress.detail} Please wait; you may cancel summary generation if you do not need it.</span>
                 </div>
               </div>
             )}

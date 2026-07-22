@@ -26,7 +26,7 @@ Ordinary multi-agent chats tend to become long parallel monologues. Academic Rou
 - The AI LLM mode is an explicit button group on both the landing page and conversation page. The conversation control applies to the next segment and is disabled while the AIs are streaming.
 - The conversation header and participant cards show the model and reasoning route selected for the segment. Every completed or interrupted AI contribution retains its actual `profile`, `model`, and `reasoning_effort` and displays them beside the speaker, so a Research/Verification turn cannot be mistaken for a Fast/Lite turn.
 - Full transcripts and digest history remain available as inputs to final synthesis and in the complete archive. The closeout Summary Digest contains only Momo's comprehensive synthesized learning record; it does not append the Topic Digest, processed-source digests, current Conversation Digest, or earlier digest history.
-- The closeout page shows a highlighted blue status notice while final and one-page summaries are generated. After processing, the save/download row appears first and **Evaluate learning** follows beneath it; saved rubric results are included in later downloads.
+- The closeout page shows a highlighted blue status notice while Momo generates the comprehensive Summary Digest and Bobby generates the one-page summary concurrently. Both closeout jobs always use the configured Verification routes with high reasoning—even if the discussion used Fast or Research mode. Each receives the same frozen package containing bounded extracted source text (never the original binary), processed document digests, the Topic Digest, all periodic/requested Conversation Digests, and the complete substantive conversation history. After both jobs settle, the save/download row appears first and **Evaluate learning** follows beneath it; saved rubric results are included in later downloads.
 
 ## Core workflow
 
@@ -67,7 +67,7 @@ flowchart LR
 - Highlighted top-right **Sam has the floor** indicator
 - Provider health and background-job progress
 - Temporary local System cards for active Topic Digest and Conversation Digest work; these disappear on completion and are never stored or exported
-- Blue closeout progress messages that distinguish final-summary and one-page-summary processing
+- Blue closeout progress messages that identify Momo and Bobby as concurrent summary authors and show both job details
 - Readable transcript, synthesis-only comprehensive Summary Digest, one-page summary, and complete ZIP archive exports after closure; structured session data and explicit supporting digest files remain inside the archive for machine use
 - An **End** action that interrupts generation and opens closeout immediately
 - Cancellable final-summary generation; downloads remain available without it
@@ -289,8 +289,8 @@ The application intentionally retains one session at a time. Both the interface 
 1. Sam concludes the current session.
 2. The active stream finishes cancelling and the closeout page starts an optional final summary.
 3. Sam may wait for the summary, cancel it, or skip directly to the next-table action.
-4. A blue progress message distinguishes session-material summarization from one-page-summary generation and asks Sam to wait or cancel.
-5. Once processing ends, the closeout page presents the complete archive, readable transcript, one-page summary, and comprehensive Summary Digest downloads, followed by the optional learning-evaluation control. The Summary Digest is synthesis-only; download the archive to retain the Topic, source, current Conversation, and historical digest records.
+4. A blue progress message shows Momo writing the comprehensive Summary Digest and Bobby independently writing the one-page learning summary from the same frozen materials. The shared bounded bundle includes extracted source text with provenance labels, processed source digests, the Topic Digest, all Conversation Digests, and the complete substantive transcript; it excludes uploaded binary files. Both provider calls run concurrently, always use their Verification models with high reasoning, and may be cancelled together.
+5. Once both jobs settle, the closeout page presents the complete archive, readable transcript, one-page summary, and comprehensive Summary Digest downloads, followed by the optional learning-evaluation control. Either summary has its own digest-based fallback, so one slow or failed provider does not erase the other artifact. The Summary Digest is synthesis-only; download the archive to retain the Topic, source, current Conversation, and historical digest records.
 6. Sam may complete and save the built-in learning evaluation; subsequent downloads include it.
 7. If the record has not been saved—or the summary was skipped—the app asks whether Sam wants to stay for optional save/evaluation work.
 8. Selecting **No, start new roundtable** immediately clears prior database history, evaluation, FTS passages, and managed uploads before showing the new-table form.
