@@ -16,6 +16,74 @@ const profileMeta: Record<ConversationProfile, { label: string; short: string }>
 };
 
 type VoiceState = "idle" | "recording" | "transcribing";
+type AISpeaker = "Momo" | "Bobby";
+
+const FEMININE_VOICE_HINTS = /(?:zira|aria|jenny|ava|emma|sonia|susan|samantha|victoria|karen|tessa|xiaoxiao|huihui|female|woman)/i;
+const MASCULINE_VOICE_HINTS = /(?:david|mark|guy|ryan|brian|george|daniel|thomas|james|alex|yunxi|male|man)/i;
+
+function reminderLocale(language: string): string {
+  const normalized = language.toLowerCase();
+  if (normalized.includes("chinese") || normalized.includes("mandarin") || normalized.includes("中文")) return "zh-CN";
+  if (normalized.includes("spanish") || normalized.includes("español")) return "es-ES";
+  if (normalized.includes("french") || normalized.includes("français")) return "fr-FR";
+  if (normalized.includes("german") || normalized.includes("deutsch")) return "de-DE";
+  if (normalized.includes("portuguese") || normalized.includes("português")) return "pt-BR";
+  if (normalized.includes("japanese") || normalized.includes("日本語")) return "ja-JP";
+  if (normalized.includes("korean") || normalized.includes("한국어")) return "ko-KR";
+  return "en-US";
+}
+
+export function turnReminderText(language: string): string {
+  const locale = reminderLocale(language);
+  if (locale.startsWith("zh")) return "Sam，你怎么看？";
+  if (locale.startsWith("es")) return "Sam, ¿qué opinas?";
+  if (locale.startsWith("fr")) return "Sam, qu'en pensez-vous ?";
+  if (locale.startsWith("de")) return "Sam, was denken Sie?";
+  if (locale.startsWith("pt")) return "Sam, o que você acha?";
+  if (locale.startsWith("ja")) return "Sam、どう思いますか？";
+  if (locale.startsWith("ko")) return "Sam, 어떻게 생각하세요?";
+  return "Sam, what do you think?";
+}
+
+export function selectTurnReminderVoice(
+  voices: SpeechSynthesisVoice[],
+  lastSpeaker: AISpeaker,
+  language: string,
+): SpeechSynthesisVoice | undefined {
+  if (!voices.length) return undefined;
+  const locale = reminderLocale(language).toLowerCase();
+  const languageCode = locale.split("-")[0];
+  const matchingLanguage = voices.filter((voice) => voice.lang.toLowerCase().startsWith(languageCode));
+  const candidates = matchingLanguage.length ? matchingLanguage : voices;
+  const preferredPattern = lastSpeaker === "Momo" ? FEMININE_VOICE_HINTS : MASCULINE_VOICE_HINTS;
+  return candidates.find((voice) => preferredPattern.test(voice.name))
+    ?? candidates.find((voice) => voice.default)
+    ?? candidates[0];
+}
+
+export function VoiceReminderControl({
+  enabled,
+  supported,
+  onChange,
+}: {
+  enabled: boolean;
+  supported: boolean;
+  onChange: (enabled: boolean) => void;
+}) {
+  return (
+    <label className={`voice-reminder-toggle ${supported ? "" : "is-unavailable"}`.trim()} title={supported
+      ? "Speak a brief reminder when Sam gets the floor; use a Momo-like or Bobby-like system voice when available"
+      : "Spoken reminders are not supported by this browser"}>
+      <input
+        type="checkbox"
+        checked={enabled && supported}
+        disabled={!supported}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span>Turn reminder</span>
+    </label>
+  );
+}
 
 function voiceTime(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
@@ -296,7 +364,7 @@ export function NewSessionForm({
         {sources.length > 0 && <div className="landing-source-list">{sources.map((file) => <div key={`${file.name}-${file.size}-${file.lastModified}`}><span><strong>{file.name}</strong><small>{Math.max(1, Math.round(file.size / 1024)).toLocaleString()} KB · queued after Start</small></span><button type="button" onClick={() => setSources((current) => current.filter((item) => item !== file))} aria-label={`Remove ${file.name}`}>Remove</button></div>)}</div>}
         {blockedPdf && <div className="dependency-warning"><strong>PDF selection needs setup:</strong> install PyMuPDF and pdfplumber, then restart the app. TXT and Markdown remain available.</div>}
       </section>
-      <p className="form-hint">Research and verification modes allow more model work and may take longer. Raw source excerpts are only reopened when Sam explicitly asks to check the original document.</p>
+      <p className="form-hint">Research and verification modes allow more model work and may take longer. Ordinary live turns reopen source excerpts only when Sam explicitly asks; closeout uses bounded extracted text rather than the original files.</p>
       <p className="retention-warning">This app keeps one local roundtable at a time.</p>
       <button className="button button-primary" disabled={!canSubmit}>Start roundtable</button>
     </form>
@@ -415,6 +483,11 @@ function App() {
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [voiceSeconds, setVoiceSeconds] = useState(0);
   const [voiceDraftReady, setVoiceDraftReady] = useState(false);
+  const [voiceReminderEnabled, setVoiceReminderEnabled] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try { return window.localStorage.getItem("academic-roundtable.voice-reminder") !== "off"; }
+    catch { return true; }
+  });
   const [target, setTarget] = useState("roundtable");
   const [rounds, setRounds] = useState(2);
   const [automaticRoundVariation, setAutomaticRoundVariation] = useState(true);
@@ -461,7 +534,20 @@ function App() {
     if (mediaRecorder.current?.state === "recording") mediaRecorder.current.stop();
     mediaStream.current?.getTracks().forEach((track) => track.stop());
     if (voiceTicker.current !== null) window.clearInterval(voiceTicker.current);
+    window.speechSynthesis?.cancel();
   }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        "academic-roundtable.voice-reminder",
+        voiceReminderEnabled ? "on" : "off",
+      );
+    } catch {
+      // A blocked localStorage preference should not affect the roundtable.
+    }
+    if (!voiceReminderEnabled) window.speechSynthesis?.cancel();
+  }, [voiceReminderEnabled]);
 
   useEffect(() => {
     if (!session) return;
@@ -489,6 +575,7 @@ function App() {
 
   useEffect(() => {
     if (!busy) return;
+    window.speechSynthesis?.cancel();
     const frame = window.requestAnimationFrame(() => {
       conversationPanel.current?.scrollIntoView({ behavior: "auto", block: "start" });
     });
@@ -499,6 +586,26 @@ function App() {
     const AIJustReturnedFloor = wasBusy.current && !busy && session?.state === "HUMAN_FLOOR";
     wasBusy.current = busy;
     if (!AIJustReturnedFloor) return;
+    const lastAISpeaker = [...(session?.messages ?? [])]
+      .reverse()
+      .find((message) => message.speaker === "Momo" || message.speaker === "Bobby")?.speaker as AISpeaker | undefined;
+    if (voiceReminderEnabled && lastAISpeaker && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window) {
+      const utterance = new SpeechSynthesisUtterance(
+        turnReminderText(session?.conversation_language || "English"),
+      );
+      const selectedVoice = selectTurnReminderVoice(
+        window.speechSynthesis.getVoices(),
+        lastAISpeaker,
+        session?.conversation_language || "English",
+      );
+      if (selectedVoice) utterance.voice = selectedVoice;
+      utterance.lang = selectedVoice?.lang || reminderLocale(session?.conversation_language || "English");
+      utterance.rate = 0.96;
+      utterance.pitch = lastAISpeaker === "Momo" ? 1.05 : 0.92;
+      utterance.volume = 0.82;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    }
     let secondFrame = 0;
     const firstFrame = window.requestAnimationFrame(() => {
       secondFrame = window.requestAnimationFrame(() => {
@@ -511,7 +618,7 @@ function App() {
       window.cancelAnimationFrame(firstFrame);
       if (secondFrame) window.cancelAnimationFrame(secondFrame);
     };
-  }, [busy, session?.state]);
+  }, [busy, session?.state, voiceReminderEnabled]);
   useEffect(() => {
     if (!session || !session.jobs.some((job) => ["queued", "running"].includes(job.status))) return;
     const timer = window.setInterval(() => refreshSession(session.id).catch(() => undefined), 2500);
@@ -532,6 +639,9 @@ function App() {
   const hasSamDirection = useMemo(() => session?.messages.some((message) => message.speaker === "Sam" && message.metadata.kind !== "session_opening") ?? false, [session?.messages]);
   const concluded = session?.state === "CLOSING" || session?.state === "CLOSED";
   const pdfDependenciesReady = Boolean(documentDependencies?.pymupdf && documentDependencies?.pdfplumber);
+  const voiceReminderSupported = typeof window !== "undefined"
+    && "speechSynthesis" in window
+    && "SpeechSynthesisUtterance" in window;
   const voiceMaxBytes = appMetadata?.voice_input?.max_audio_bytes ?? 25 * 1024 * 1024;
   const chooseRoundCount = () => automaticRoundVariation ? (Math.random() < 0.2 ? 3 : 2) : rounds;
 
@@ -663,6 +773,7 @@ function App() {
 
   const startDiscussion = async (requestedRounds?: number, startingSpeaker?: "Momo" | "Bobby", continueWithoutSam = false) => {
     if (!session || busy) return;
+    window.speechSynthesis?.cancel();
     const segmentRounds = requestedRounds ?? chooseRoundCount();
     setBusy(true); setError("");
     const streamState: { tempId?: string; retryNoticeId?: string } = {};
@@ -688,6 +799,7 @@ function App() {
   const sendMessage = async (event: FormEvent) => {
     event.preventDefault();
     if (!session || !composer.trim()) return;
+    window.speechSynthesis?.cancel();
     const content = composer.trim(); setComposer(""); setError("");
     try {
       const plannedRounds = chooseRoundCount();
@@ -711,6 +823,7 @@ function App() {
   };
   const startVoiceRecording = async () => {
     if (!session || concluded || voiceState !== "idle") return;
+    window.speechSynthesis?.cancel();
     setError("");
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setError("Voice input is not supported by this browser. Use a current browser or type Sam's response.");
@@ -1032,7 +1145,7 @@ function App() {
               </div>
 
               <aside className="host-panel" aria-label="Sam's host controls">
-                <div className="host-panel-heading"><div className="avatar">S</div><strong>Sam</strong><span className="host-label-separator" aria-hidden="true">·</span><small>Guide the roundtable</small></div>
+                <div className="host-panel-heading"><div className="avatar">S</div><strong>Sam</strong><span className="host-label-separator" aria-hidden="true">·</span><small>Guide the roundtable</small><VoiceReminderControl enabled={voiceReminderEnabled} supported={voiceReminderSupported} onChange={setVoiceReminderEnabled} /></div>
                 <form onSubmit={sendMessage} className={`composer ${(!busy && !concluded) || voiceState !== "idle" ? "sam-has-floor" : ""} ${voiceState !== "idle" ? `voice-${voiceState}` : ""}`}>
                   <div className="composer-topline"><label>Address <select value={target} onChange={(event) => setTarget(event.target.value)}><option value="roundtable">Automatic</option><option value="Momo">Momo</option><option value="Bobby">Bobby</option><option value="both">Both independently</option></select></label><span>Names and @mentions override</span></div>
                   <VoiceInputControl
@@ -1066,7 +1179,7 @@ function App() {
           <section className="evidence-card">
             <div>
               <div className="section-heading"><span className="eyebrow">Evidence library</span><Badge>{session.documents.length}</Badge></div>
-              <p>Files are stored locally. Extracted sections are sent to the configured model server for digestion; ordinary turns use the processed digest, and raw excerpts return only for Sam's explicit source check.</p>
+              <p>Files are stored locally. Extracted sections are sent for source digestion and bounded closeout synthesis; ordinary turns use the processed digest, while source excerpts return only for Sam's explicit source check.</p>
             </div>
             <label className="upload-zone">
               <input type="file" accept=".pdf,.txt,.md,.markdown" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} />

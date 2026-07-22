@@ -72,6 +72,7 @@ The project uses short, testable increments. It does not add multi-user or cloud
 - Narrow, persistent Sam composer and always-reachable interrupt control
 - Active-floor highlight around Sam's composer whenever the AIs are waiting for the host
 - Matching highlight on the top-right **Sam has the floor** indicator
+- Optional local Turn reminder at the AI-to-Sam floor transition, with last-speaker feminine/masculine system-voice preference, multilingual reminder text, immediate cancellation during further interaction, and a persistent on/off toggle in Sam's panel
 - Local-only System digestion notices in the transcript, derived from queued/running topic or conversation digest jobs and removed automatically without persistence
 - Participant-name highlighting and distinct background-knowledge styling
 - Digests and periodic summaries below the conversation
@@ -87,6 +88,7 @@ The project uses short, testable increments. It does not add multi-user or cloud
 - Send the in-memory recording to the configurable OpenAI transcription endpoint without saving audio locally
 - Guide transcription with the topic, active question, and academic terminology while limiting correction to spelling, punctuation, and obvious grammar
 - Return an editable draft to Sam; never auto-submit a transcription
+- Keep the independent Turn reminder browser-local: it uses installed text-to-speech voices, consumes no model tokens, and can be disabled by Sam
 - Expand Sam message validation to 24,000 characters and apply larger recent-turn context, response-token, and timeout multipliers for voice-derived or otherwise long input
 - Retain the latest Sam contribution through every AI round in the segment and apply the long-input multiplier consistently to first-token, stream-idle, and total-turn deadlines
 - Require an explicit recap command so ordinary academic uses of “summary” do not interrupt conversation routing

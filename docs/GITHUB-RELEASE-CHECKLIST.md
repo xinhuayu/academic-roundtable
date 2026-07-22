@@ -30,13 +30,14 @@
 ## Latest prepared-archive verification (2026-07-22)
 
 - [x] 88 backend tests passed.
-- [x] Frontend Vitest suite passed (8 tests, including actual model-route labels, translated provenance labels, ephemeral digest and timeout-retry messages, parallel Momo/Bobby closeout status, landing-page multi-source staging, and Sam voice privacy/review states).
+- [x] Frontend Vitest suite passed (10 tests, including actual model-route labels, translated provenance labels, ephemeral digest and timeout-retry messages, parallel Momo/Bobby closeout status, landing-page multi-source staging, Sam voice privacy/review states, and the localized last-speaker Turn reminder control).
 - [x] Frontend production build passed.
 - [x] Candidate source files passed checks for common OpenAI, Google, and Anthropic key formats, private-key blocks, and developer-specific absolute paths.
 - [x] Archive entry inspection found no `.env.local`, runtime database, uploaded source, transcript, log, cache, dependency directory, or compiled build output.
 - [x] `.env.example`, README, logo, backend source, frontend source, tests, skills, and documentation are present.
 - [x] Current frontend source includes the Sam-floor composer highlight, stage-specific blue closeout progress messages, and save/download-before-evaluation ordering.
 - [x] Current frontend source includes the highlighted header floor indicator and non-persistent topic/conversation digestion cards.
+- [x] Sam's panel includes a persistent browser-local Turn reminder toggle; the reminder speaks once per AI-to-Sam handoff and prefers different installed voices after Momo and Bobby without consuming API tokens.
 - [x] Current source includes the Fast/Research/Verification session profile selector and profile-aware model, reasoning, token, and timeout routing.
 - [x] Current Bobby defaults are Gemini 3.5 Flash-Lite/minimal for Fast, Gemini 3.6 Flash/medium for Research, and Gemini 2.5 Pro/high for Verification; `.env.example` exposes all three model overrides.
 - [x] Gemini live requests have bounded hidden-thinking reserves, model-aware timeout margins, and regression coverage for Fast, Verification, and the 65,536-token cap.

@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { buildCloseoutProgress, buildDigestStatusMessages, FormattedMessageContent, NewSessionForm, TranscriptMessage, VoiceInputControl } from "./App";
+import { buildCloseoutProgress, buildDigestStatusMessages, FormattedMessageContent, NewSessionForm, selectTurnReminderVoice, TranscriptMessage, turnReminderText, VoiceInputControl, VoiceReminderControl } from "./App";
 
 
 describe("FormattedMessageContent", () => {
@@ -134,5 +134,27 @@ describe("VoiceInputControl", () => {
     expect(recording).toContain("select Stop recording when finished");
     expect(recording).toContain("Stop recording");
     expect(ready).toContain("review and edit before Answer");
+  });
+});
+
+describe("Sam turn reminder", () => {
+  const voices = [
+    { name: "Microsoft Zira Desktop", lang: "en-US", default: false, localService: true, voiceURI: "zira" },
+    { name: "Microsoft David Desktop", lang: "en-US", default: false, localService: true, voiceURI: "david" },
+  ] as SpeechSynthesisVoice[];
+
+  it("selects different available system voices after Momo and Bobby", () => {
+    expect(selectTurnReminderVoice(voices, "Momo", "English")?.name).toContain("Zira");
+    expect(selectTurnReminderVoice(voices, "Bobby", "English")?.name).toContain("David");
+    expect(turnReminderText("Chinese")).toContain("Sam");
+  });
+
+  it("offers an accessible on/off control in Sam's panel", () => {
+    const markup = renderToStaticMarkup(
+      <VoiceReminderControl enabled supported onChange={() => undefined} />,
+    );
+    expect(markup).toContain("Turn reminder");
+    expect(markup).toContain('type="checkbox"');
+    expect(markup).toContain("checked");
   });
 });

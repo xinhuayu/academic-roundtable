@@ -64,6 +64,7 @@ flowchart LR
 - Conversation-first rolling interface with persistent host controls
 - Highlighted Sam composer whenever Sam has the floor
 - Optional Sam voice input during the human floor, or **Interrupt and speak** during an AI segment; recordings continue until Sam stops them, are transcribed with topic-aware light spelling/punctuation correction, and return to the composer for review and editing before submission
+- Optional browser-local **Turn reminder** when an AI segment returns the floor to Sam. It speaks a short localized equivalent of “Sam, what do you think?”, prefers a feminine installed voice after Momo and a masculine installed voice after Bobby when available, and can be disabled persistently in Sam's panel without using an AI API
 - Highlighted top-right **Sam has the floor** indicator
 - Provider health and background-job progress
 - Temporary local System cards for active Topic Digest and Conversation Digest work; these disappear on completion and are never stored or exported
