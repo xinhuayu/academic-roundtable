@@ -23,7 +23,7 @@ Depth here means intellectual progress—not long answers. Each AI turn should b
 1. **Human-directed, not human-blocked.** Momo and Bobby may converse for two to five rounds, but Sam can interrupt or redirect them at any time.
 2. **Conversation owns the screen.** The rolling transcript is the main interface; Sam's composer, voice input, and interrupt control remain reachable while generation continues, and the composer is highlighted when Sam has the floor.
 3. **Voice remains reviewable text.** Sam records until choosing to stop, including comments lasting three or five minutes or longer. The transcript is lightly corrected only for punctuation, obvious grammar, and topic terminology, then returned to the composer for human review and editing. It is never submitted automatically.
-4. **Concise turns support depth.** Live prompts target one substantive contribution of roughly 60–110 words rather than comprehensive mini-essays.
+4. **Output matches the selected depth.** Fast prompts target one 60–110-word contribution. Research prompts allow a focused 140–220 words in two connected paragraphs so assumptions, inferential chains, and relevant mathematical/statistical detail can be developed without becoming encyclopedic.
 5. **Useful opposition.** Each AI must agree, disagree, qualify, or extend the other participant's claim instead of producing parallel monologues.
 6. **Focus is durable state.** Every live request includes the Topic Digest, latest Conversation Digest, active question, and the five most recent complete rounds.
 7. **Evidence provenance matters.** Source evidence, model background knowledge, inference, and speculation must remain distinguishable.
@@ -32,6 +32,7 @@ Depth here means intellectual progress—not long answers. Each AI turn should b
 10. **Depth is selectable.** Fast discussion is the low-latency baseline; Research and Verification profiles selectively use flagship models, higher reasoning, larger allowances, and longer deadlines for mathematically or statistically demanding work.
 11. **Controlled replacement.** If any prior session remains, a new table requires reset confirmation; reset creates a clean environment by purging prior session content and uploads after a warning so learning sessions stay independent.
 12. **Lean before scalable.** The first release is a single-user local system; production infrastructure is deferred until the learning experience is validated.
+13. **Language is durable session state.** A confidently detected source language can initialize the session, but Sam's explicit language request has precedence. Both participants and every digest/summary task receive the same output-language constraint.
 
 ## Participant model
 
@@ -56,6 +57,7 @@ During a session:
 - An AI can ask Sam one focused question at a scheduled checkpoint; Sam can answer, redirect, or click **Let them continue**.
 - Interrupt stops the active segment without hiding already streamed partial text. Sam may then speak or continue for more rounds.
 - Recaps can be requested in natural language or from the interface and appear below the transcript.
+- A non-English source can initialize the conversation language. Sam can explicitly change it at any time; the selected language appears in the conversation header and governs both AIs, digests, summaries, localized greetings, and closeout text.
 - The conversation header keeps a visible **AI LLM mode** button group for Fast, Research, and Verification. Sam can change it between segments for a specific discussion point; it is disabled during streaming and applies to the next segment.
 - The header **End** action or closing language interrupts generation, creates one brief AI farewell, and opens the download handoff. A highlighted blue live-status panel distinguishes “Summarizing the session materials……” from “Generating the one-page summary……” and displays the active job detail. Final-summary generation can be cancelled without losing transcript or digest downloads. After completion, the save/download row appears before the optional **Evaluate learning** control.
 
@@ -94,7 +96,7 @@ The default template keeps Momo on OpenAI and connects Bobby to Gemini 3.1 Flash
 Adapters also support Anthropic Messages for Bobby as an alternative path (`anthropic_messages`) when configured.
 Each adapter forwards task settings and reports provider failures per participant.
 
-Reasoning, output allowances, and timeouts are task-aware. Fast live turns default to low reasoning and target 60-110 visible words. Momo uses an 800-token base live allowance and Bobby uses 1,400; the existing 50% Fast multiplier applies during rounds. Research mode defaults to GPT-5.6 Sol and Gemini 3.1 Pro Preview with medium reasoning, 2× live token/time multipliers, and 1.5× background digest deadlines. Verification mode uses the same flagship pair with high reasoning, 2× live token and 2.5× live timeout multipliers, and 2× background digest deadlines. An explicit Sam request to check the original source automatically selects Verification for that segment, but raw excerpts remain gated by that request. A voice-derived or otherwise long Sam contribution is retained throughout every AI round in its segment and receives the configured long-input multiplier across output capacity plus first-token, stream-idle, and total-turn deadlines. A Chat Completions `finish_reason` of `length` is persisted as interrupted, reported to Sam, and stops the segment before the next AI speaks. Connection, first-token, stream-read, and total-turn deadlines are independently configurable per participant. Background section and whole-job deadlines remain configurable through environment settings. Sam's interrupt still cancels the active stream task immediately, retaining any partial response already received.
+Reasoning, output allowances, and timeouts are task-aware. Fast live turns default to low reasoning and target 60–110 visible words. Momo uses an 800-token base live allowance and Bobby uses 1,400; the existing 50% Fast multiplier applies during rounds. Research mode defaults to GPT-5.6 Sol and Gemini 3.1 Pro Preview with medium reasoning, 2.75× live token and 2.5× live timeout multipliers, a focused 140–220-word visible target per AI, and 1.5× background digest deadlines. Verification mode uses the same flagship pair with high reasoning, 2× live token and 2.5× live timeout multipliers, and 2× background digest deadlines. An explicit Sam request to check the original source automatically selects Verification for that segment, but raw excerpts remain gated by that request. A voice-derived or otherwise long Sam contribution is retained throughout every AI round in its segment and receives the configured long-input multiplier across output capacity plus first-token, stream-idle, and total-turn deadlines. A Chat Completions `finish_reason` of `length` is persisted as interrupted, reported to Sam, and stops the segment before the next AI speaks. Connection, first-token, stream-read, and total-turn deadlines are independently configurable per participant. Background section and whole-job deadlines remain configurable through environment settings. Sam's interrupt still cancels the active stream task immediately, retaining any partial response already received.
 
 The session stores `conversation_profile` (`fast`, `research`, or `verification`). Sam chooses it on the landing page or changes it from the session evidence/settings panel. The API exposes the profile catalog through `/api/meta`. Per-request model overrides keep provider credentials and endpoint configuration unchanged. Larger output allowances are upper bounds; the academic prompt still requires concise visible turns. Numerical claims should be checked with a deterministic calculator or Python/R step in a future tool layer.
 
@@ -124,8 +126,11 @@ Each live request is assembled in this order:
 6. Active question, reflecting Sam's latest direction
 7. The five most recent complete rounds, including relevant Sam interventions
 8. The processed document digest only; raw uploaded passages are omitted from ordinary rounds
+9. A constrained output-language tag derived from persisted session state
 
 The complete transcript and full digest history stay in SQLite for final synthesis and export. Older digest history is not sent with each live turn. This keeps context focused and response latency manageable.
+
+Language selection is persisted as `conversation_language` plus `language_source`. Explicit requests from Sam override the default or an automatically detected document language and cannot subsequently be replaced by another upload. Automatic detection uses conservative script and language-marker heuristics; mixed-language or low-quality OCR sources may require an explicit Sam instruction. The same constrained tag is appended to live dialogue and all source, topic, conversation, final, and one-page synthesis tasks. JSON keys stay stable while visible string values use the selected language.
 
 If Sam explicitly asks to check, verify, double-check, review, or return to the original source, PDF, document, article, or file, the responding AI segment enters source-verification mode. It retrieves up to five relevant indexed passages, labels each as an untrusted original-source excerpt with filename/page/evidence ID where available, and asks the AIs to report any mismatch with the digest without claiming more than the excerpt supports. The verification segment uses the configured single- or multi-document source token and timeout multipliers. Verification mode ends with that segment; an ordinary Continue action returns to digest-only context.
 
@@ -140,6 +145,7 @@ Each prompt section also has an explicit input ceiling. Oversized material is vi
 - Without sources, the Topic Digest develops after several substantive exchanges.
 - A Conversation Digest is scheduled every configured five or six completed rounds; Sam's interruptions do not reset that counter.
 - Explicit natural-language commands such as “summarize our discussion” or “let's recap” create an immediate visible digest; topical phrases such as “statistical summary” remain ordinary conversation.
+- English and Chinese recap, closeout, and original-source verification commands are recognized directly; the persisted output-language tag governs the resulting work.
 - The final Summary Digest draws on the complete digest history plus the most recent substantive turns. Momo's dedicated comprehensive-summary skill preserves intellectual progression, attribution, source/model/inference provenance, methods, uncertainty, Sam's learning direction, and research priorities without reproducing the transcript. Its closeout download contains only this synthesis; raw Topic, processed-source, current Conversation, and historical digest records are excluded and retained in the complete archive.
 - Source, topic, conversation, and final-summary tasks have larger output budgets than live dialogue. Final synthesis has a separate 6,000-token base allowance and inherits source/profile scaling and background-job deadlines.
 
@@ -174,6 +180,7 @@ Closeout is coordinated with the active generation lock so interrupted text is p
 - Sam-first response logic and host-deferred continuation
 - Scheduled human checkpoints
 - Concise academic debate prompts, labeled background knowledge, and line-separated `Inference:` statements for readable provenance
+- Persistent multilingual conversation state, source-language initialization, Sam-authoritative language switching, and per-task output-language enforcement
 - Topic, conversation, requested, periodic, and final digests
 - Five-round raw-history retention in every live request
 - PDF/TXT/Markdown upload, extraction, FTS5 retrieval, and source synthesis (PyMuPDF + pdfplumber table extraction with pypdf fallback)
@@ -222,9 +229,9 @@ This is still a local MVP, not an internet-facing secure service. Authentication
 
 As of the latest verification run:
 
-- 70 backend tests pass.
+- 83 backend tests pass.
 - The suite covers rounds, latest-Sam and recent-history retention, explicit recap intent, multi-round voice budgets and deadlines, mention routing, greeting exclusion, synthesis-only Summary Digest export, explicit archive digest records, latest one-page selection, FTS locators, strict one-session purging, host-deferred continuation, recap-job deduplication, first-token timeout recovery, immediate stalled-stream cancellation with partial-text retention, restart reconciliation, session-task cancellation, bounded prompt context, post-close immutability, close/interrupt lifecycle safety, and cancellation of both final and one-page summary work.
-- All 4 frontend tests, TypeScript type-checking, and the production build pass. Frontend coverage includes provenance formatting, ephemeral digest cards, landing-page multi-source staging, and the voice privacy/review states.
+- All 5 frontend tests and the production build pass. Frontend coverage includes English and translated provenance formatting, ephemeral digest cards, landing-page multi-source staging, and the voice privacy/review states.
 - Live provider checks remain optional because they consume external API capacity. The 2026-07-21 approved live audit confirmed:
   - Momo: `gpt-5.6-luna` (OpenAI Responses), configured and reachable.
   - Bobby: `gemini-3.1-flash-lite` (Google OpenAI-compatible Chat Completions), configured and reachable.
@@ -251,5 +258,6 @@ As of the latest verification run:
 - Added ephemeral Sam voice input with a configurable OpenAI transcription model, 480-second transcription deadline, 25 MB provider-compatible upload ceiling, no browser duration cutoff, 24,000-character editable draft allowance, and larger context/token/time allowances for voice-derived or otherwise long host contributions.
 - Fixed long-host continuation so the latest Sam turn and its enlarged budgets persist across every round; narrowed recap routing to explicit conversational requests instead of matching ordinary academic uses of “summary.”
 - Clarified source privacy: managed files remain local, but extracted sections are sent to the configured model server for digestion; ordinary turns use only the processed digest unless Sam explicitly requests source verification.
+- Added persistent multilingual sessions: explicit Sam requests take precedence over conservative source-language detection, and a protected language tag is sent with every live and synthesis request. Research mode now uses 2.75× live token and 2.5× timeout allowances with a focused 140–220-word depth target.
 
 See [LEARNING-QUALITY-EVALUATION.md](LEARNING-QUALITY-EVALUATION.md) for the evaluation harness and pilot process, [CRITICAL-REVIEW.md](CRITICAL-REVIEW.md) for the prioritized agent-system review, [INDEPENDENT-AUDIT.md](INDEPENDENT-AUDIT.md) for the broader audit, and [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md) for the next agile increments.

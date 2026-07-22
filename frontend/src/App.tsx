@@ -97,7 +97,7 @@ function ProfileChoice({
           title={profile === "fast"
             ? "Current provider models with the shortest response time"
             : profile === "research"
-              ? "Flagship models with medium reasoning for difficult academic discussion"
+              ? "Flagship models with medium reasoning, deeper 140–220-word turns, and enlarged budgets"
               : "Flagship models with high reasoning for verification and the hardest claims"}
           onClick={() => onChange(profile)}
         >
@@ -143,8 +143,8 @@ function MentionText({ text }: { text: string }) {
 
 function HighlightMentions({ text, breakSamQuestions = false }: { text: string; breakSamQuestions?: boolean }) {
   if (!breakSamQuestions) return <MentionText text={text} />;
-  return <>{text.split(/(\bSam[,:]\s*[^\n?]*\?)/gi).map((part, index) => {
-    if (/^Sam[,:]\s*[^\n?]*\?$/i.test(part.trim())) {
+  return <>{text.split(/(\bSam[,:，：]\s*[^\n?？]*[?？])/gi).map((part, index) => {
+    if (/^Sam[,:，：]\s*[^\n?？]*[?？]$/i.test(part.trim())) {
       return <span className="sam-question" key={`sam-question-${index}`}><MentionText text={part.trim()} /></span>;
     }
     return part ? <MentionText text={part} key={`question-text-${index}`} /> : null;
@@ -152,11 +152,12 @@ function HighlightMentions({ text, breakSamQuestions = false }: { text: string; 
 }
 
 export function FormattedMessageContent({ text, breakSamQuestions = false }: { text: string; breakSamQuestions?: boolean }) {
-  const parts = text.split(/(\*{0,2}(?:Background knowledge|Background information|Inference|Speculation):\*{0,2})/gi);
+  const provenanceLabels = "Background knowledge|Background information|Inference|Speculation|背景知识|背景知識|背景信息|背景資訊|推论|推論|推断|推斷|推测|推測|Inferencia|Especulación|Connaissances générales|Inférence|Spéculation|Hintergrundwissen|Schlussfolgerung|Spekulation|Conhecimento de fundo|Inferência|Especulação";
+  const parts = text.split(new RegExp(`(\\*{0,2}(?:${provenanceLabels})[:：]\\*{0,2})`, "gi"));
   const rendered: React.ReactNode[] = [];
   for (let index = 0; index < parts.length; index += 1) {
     const part = parts[index];
-    const marker = part.match(/^\*{0,2}(Background knowledge|Background information|Inference|Speculation):\*{0,2}$/i);
+    const marker = part.match(new RegExp(`^\\*{0,2}(${provenanceLabels})[:：]\\*{0,2}$`, "i"));
     if (!marker) {
       if (part) rendered.push(<HighlightMentions text={part} breakSamQuestions={breakSamQuestions} key={`text-${index}`} />);
       continue;
@@ -164,8 +165,8 @@ export function FormattedMessageContent({ text, breakSamQuestions = false }: { t
     const label = marker[1];
     const content = parts[index + 1] ?? "";
     index += 1;
-    if (label.toLowerCase().startsWith("background")) {
-      const questionIndex = breakSamQuestions ? content.search(/\bSam[,:]\s*[^\n?]*\?/i) : -1;
+    if (/^(?:background|背景|conocimiento de fondo|connaissances générales|hintergrundwissen|conhecimento de fundo)/i.test(label)) {
+      const questionIndex = breakSamQuestions ? content.search(/\bSam[,:，：]\s*[^\n?？]*[?？]/i) : -1;
       const backgroundContent = (questionIndex >= 0 ? content.slice(0, questionIndex) : content).trim();
       const questionContent = questionIndex >= 0 ? content.slice(questionIndex).trim() : "";
       rendered.push(
@@ -182,7 +183,7 @@ export function FormattedMessageContent({ text, breakSamQuestions = false }: { t
         );
       }
     } else {
-      const isInference = label.toLowerCase() === "inference";
+      const isInference = /^(?:inference|inferencia|inférence|schlussfolgerung|inferência|推论|推論|推断|推斷)$/i.test(label);
       rendered.push(
         <span className={isInference ? "provenance-block inference-block" : undefined} key={`provenance-${index}`}>
           <strong className="provenance-label">{label}:</strong>
@@ -249,7 +250,7 @@ export function NewSessionForm({
     }}>
       <label>Roundtable topic<textarea value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="e.g., When can an observational estimate support a causal interpretation?" rows={3} /></label>
       <label>Sam’s learning goal<textarea value={goal} onChange={(event) => setGoal(event.target.value)} rows={2} /></label>
-      <div className="profile-field"><span>AI LLM mode</span><ProfileChoice value={profile} onChange={setProfile} /><small>Choose Fast for quick exploration, Research for difficult math/statistics, or Verification for high-depth checking.</small></div>
+      <div className="profile-field"><span>AI LLM mode</span><ProfileChoice value={profile} onChange={setProfile} /><small>Choose Fast for quick exploration, Research for deeper 140–220-word mathematical or methodological turns, or Verification for high-depth checking.</small></div>
       <section className="landing-source-panel" aria-labelledby="landing-source-title">
         <div>
           <span className="eyebrow" id="landing-source-title">Source documents · optional</span>
@@ -903,7 +904,7 @@ function App() {
         <main className="workspace">
           <section className="topic-bar">
             <div><div className="eyebrow">Active inquiry</div><h1>{session.topic}</h1><p>{session.learning_goal}</p></div>
-            <div className="topic-actions"><div className="topic-mode-control"><span>AI LLM mode · next segment</span><ProfileChoice value={session.conversation_profile} onChange={updateConversationProfile} disabled={busy} compact /></div><span><strong>{session.completed_rounds}</strong> rounds</span></div>
+            <div className="topic-actions"><div className="topic-mode-control"><span>AI LLM mode · next segment</span><ProfileChoice value={session.conversation_profile} onChange={updateConversationProfile} disabled={busy} compact /></div><span className="language-indicator"><strong>{session.conversation_language || "English"}</strong> conversation</span><span><strong>{session.completed_rounds}</strong> rounds</span></div>
           </section>
 
           {error && <div className="error-banner"><span>{error}</span><button onClick={() => setError("")}>Dismiss</button></div>}

@@ -141,12 +141,21 @@ The prioritized rationale and postponed work are recorded in [CRITICAL-REVIEW.md
 
 - Added a persisted per-session `conversation_profile`: `fast`, `research`, or `verification`.
 - Fast remains the default and preserves the current low-latency provider models and concise live turns.
-- Research routes Momo to GPT-5.6 Sol and Bobby to Gemini 3.1 Pro Preview by default, with medium reasoning, 2× live token/time allowances, and 1.5× background digest deadlines.
+- Research routes Momo to GPT-5.6 Sol and Bobby to Gemini 3.1 Pro Preview by default, with medium reasoning, 2.75× live token allowances, 2.5× live deadlines, a focused 140–220-word target, and 1.5× background digest deadlines.
 - Verification uses the same flagship pair with high reasoning, 2× live token allowance, and 2.5× live deadlines; explicit requests to check the original source automatically use this profile for one segment.
 - Source excerpts remain excluded from ordinary rounds. Verification mode alone increases reasoning; raw excerpts are still added only when Sam explicitly requests the original source.
 - The landing page and session settings expose the profile selector, `/api/meta` publishes the profile catalog, and `.env.example` documents all override variables.
 - The landing page and conversation header expose explicit AI LLM mode buttons; the in-session choice applies to the next segment and is disabled during active streaming.
 - Numerical/statistical claims remain candidates for a future deterministic calculator or Python/R tool; larger LLM budgets do not substitute for computation.
+
+## Persistent multilingual conversation — complete
+
+- Added `conversation_language` and `language_source` to session state with additive migration support.
+- A conservative source-language detector can initialize non-English sessions after extraction; Sam's explicit language instruction has permanent precedence over later uploads.
+- A constrained output-language tag is appended to every Momo/Bobby live turn and every source, Topic, Conversation, final, and one-page synthesis task.
+- Localized greetings and closeout text are available for common languages; the UI header and readable exports disclose the active language.
+- JSON keys, formulas, proper nouns, and exact quotations remain stable while visible prose and JSON string values use the selected language.
+- English and Chinese recap, closeout, source-verification, and host-question control forms have deterministic coverage. Additional intent-language variants remain a fixture-driven extension.
 
 ## Next agile increments
 
@@ -232,8 +241,8 @@ Potential scope:
 
 | Work type | Output budget | Execution |
 |---|---:|---|
-| Live Momo contribution | 800 base completion tokens; prompt targets 60-110 words; 50% multiplier applied during rounds | critical response plus sufficient OpenAI reasoning room |
-| Live Bobby contribution | 1,400 base completion tokens; prompt targets 60-110 words; 50% multiplier applied during rounds | case development plus Gemini hidden-reasoning room |
+| Live Momo contribution | 800 base completion tokens; Fast targets 60–110 words; Research uses 2.75× token room and targets 140–220 words | critical response plus sufficient OpenAI reasoning room |
+| Live Bobby contribution | 1,400 base completion tokens; Fast targets 60–110 words; Research uses 2.75× token room and targets 140–220 words | case development plus provider hidden-reasoning room |
 | Conversation digest/recap | at least 2,000; default 4,000 | background or requested foreground |
 | Topic digest | at least 3,000; default 6,000 | background |
 | Source section/synthesis | at least 4,000; default 8,000 | background |

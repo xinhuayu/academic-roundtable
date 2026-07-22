@@ -37,6 +37,8 @@ export interface Session {
   sources_only: boolean;
   periodic_summary: boolean;
   conversation_profile: ConversationProfile;
+  conversation_language: string;
+  language_source: "default" | "sam" | "source_document" | string;
   state: string;
   active_question: string;
   topic_digest: Record<string, unknown>;

@@ -13,6 +13,17 @@ describe("FormattedMessageContent", () => {
     expect(markup).toContain('class="provenance-block inference-block"');
     expect(markup).toContain("Inference:");
   });
+
+  it("formats translated Chinese provenance labels", () => {
+    const markup = renderToStaticMarkup(
+      <FormattedMessageContent text="背景知识：轨迹类别是统计模型的产物。\n\n推论：因果解释需要额外假设。" />,
+    );
+
+    expect(markup).toContain('class="background-knowledge"');
+    expect(markup).toContain('class="provenance-block inference-block"');
+    expect(markup).toContain("背景知识");
+    expect(markup).toContain("推论");
+  });
 });
 
 describe("buildDigestStatusMessages", () => {

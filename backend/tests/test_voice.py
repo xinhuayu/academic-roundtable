@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from app import main as main_module
 from app.config import get_settings
 from app.database import Database
+from app.service import RoundtableService
 from app.voice import VoiceTranscriber, build_transcription_prompt, validate_audio_upload
 
 
@@ -32,6 +33,55 @@ class _FakeVoiceTranscriber:
             "topic": session["topic"],
         })
         return {"text": "A corrected academic comment.", "model": "test-transcriber", "characters": 29}
+
+
+def test_session_creation_localizes_greetings_from_explicit_language_goal(tmp_path, monkeypatch) -> None:
+    db = Database(tmp_path / "language-create.sqlite3")
+    db.initialize()
+    monkeypatch.setattr(main_module, "database", db)
+    client = TestClient(main_module.app)
+
+    response = client.post(
+        "/api/sessions",
+        json={
+            "topic": "认知轨迹与健康",
+            "learning_goal": "Please conduct this conversation in Chinese.",
+            "rounds_per_segment": 2,
+            "conversation_profile": "research",
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["conversation_language"] == "Chinese"
+    assert payload["language_source"] == "sam"
+    assert payload["messages"][0]["content"].startswith("你好")
+    assert payload["messages"][1]["content"].startswith("你好")
+
+
+def test_explicit_sam_language_switch_updates_the_session_before_routing(tmp_path, monkeypatch) -> None:
+    db = Database(tmp_path / "language-switch.sqlite3")
+    db.initialize()
+    session = db.create_session("Cognitive trajectories", "Compare interpretations", 2, False, False)
+    service = RoundtableService(main_module.settings, db, main_module.adapters)
+    monkeypatch.setattr(main_module, "database", db)
+    monkeypatch.setattr(main_module, "service", service)
+    client = TestClient(main_module.app)
+
+    response = client.post(
+        f"/api/sessions/{session['id']}/messages",
+        json={
+            "content": "Please continue the conversation in Chinese.",
+            "target": "roundtable",
+            "continue_rounds": 2,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["conversation_language"] == "Chinese"
+    updated = db.get_session(session["id"])
+    assert updated["conversation_language"] == "Chinese"
+    assert updated["language_source"] == "sam"
 
 
 def test_voice_endpoint_returns_editable_text_without_persisting_audio(tmp_path, monkeypatch) -> None:

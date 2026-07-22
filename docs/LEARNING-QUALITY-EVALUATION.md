@@ -136,13 +136,14 @@ This is a review threshold, not an automatic deployment decision. Inspect the ci
 
 ## Interpreting automated diagnostics
 
-- **Target length rate:** share of AI turns within the intended 60–110 words.
-- **Readable-limit rate:** share of AI turns at or below 130 words.
+- **Target length rate:** share of AI turns within the selected profile target: 60–110 words for Fast and 140–220 words for Research. Profile-aware scoring is required when comparing modes.
+- **Readable-limit rate:** share of AI turns below the profile's readability ceiling; do not apply the Fast 130-word ceiling to Research turns.
 - **Engagement proxy:** a conservative lexical/stance signal that a reply addresses the preceding turn. It can miss semantically strong engagement and should be checked against the transcript.
 - **Repetition proxy:** adjacent AI turns with unusually high content-word overlap.
 - **Maximum consecutive AI turns:** checks the five-round human-floor boundary.
 - **Digest salient-term coverage:** checks whether common discussion concepts survive into the latest/final digest. It does not establish factual fidelity.
 - **Epistemic labels:** counts explicit background-knowledge, inference, speculation, and source-evidence labels; more labels are not automatically better.
+- **Language consistency:** for multilingual fixtures, inspect whether both participants, recaps, and final synthesis remain in the persisted conversation language while preserving formulas, proper nouns, and exact source quotations. Treat unintended language switching as a quality failure.
 
 ## Review cadence
 

@@ -65,7 +65,7 @@ ONE_PAGE_SUMMARY_SYSTEM_PROMPT = """
 Create one-page closing summary content for a deep-learning academic roundtable.
 Use only the provided material and do not introduce claims not present in the transcript or summaries.
 
-Produce compact Markdown with these exact sections, in this order:
+Produce compact Markdown with these sections, in this order. When the required output language is not English, translate the visible section headings while preserving their meaning and order:
 1. Key concepts
 2. Main issues
 3. Strategies to solve key problems

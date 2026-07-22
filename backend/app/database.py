@@ -46,6 +46,8 @@ class Database:
                     sources_only INTEGER NOT NULL DEFAULT 0,
                     periodic_summary INTEGER NOT NULL DEFAULT 0,
                     conversation_profile TEXT NOT NULL DEFAULT 'fast',
+                    conversation_language TEXT NOT NULL DEFAULT 'English',
+                    language_source TEXT NOT NULL DEFAULT 'default',
                     state TEXT NOT NULL DEFAULT 'HUMAN_FLOOR',
                     active_question TEXT NOT NULL DEFAULT '',
                     topic_digest TEXT NOT NULL DEFAULT '{}',
@@ -157,6 +159,14 @@ class Database:
                 db.execute(
                     "ALTER TABLE sessions ADD COLUMN conversation_profile TEXT NOT NULL DEFAULT 'fast'"
                 )
+            if "conversation_language" not in session_columns:
+                db.execute(
+                    "ALTER TABLE sessions ADD COLUMN conversation_language TEXT NOT NULL DEFAULT 'English'"
+                )
+            if "language_source" not in session_columns:
+                db.execute(
+                    "ALTER TABLE sessions ADD COLUMN language_source TEXT NOT NULL DEFAULT 'default'"
+                )
 
     def reconcile_abandoned_work(self) -> dict[str, int]:
         """Make persisted in-flight state honest after a process restart."""
@@ -232,6 +242,8 @@ class Database:
         sources_only: bool,
         periodic_summary: bool,
         conversation_profile: str = "fast",
+        conversation_language: str = "English",
+        language_source: str = "default",
     ) -> dict[str, Any]:
         session_id = new_id("ses")
         now = utc_now()
@@ -252,8 +264,9 @@ class Database:
             db.execute(
                 """INSERT INTO sessions
                 (id, topic, learning_goal, rounds_per_segment, sources_only,
-                 periodic_summary, conversation_profile, active_question, topic_digest, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 periodic_summary, conversation_profile, conversation_language, language_source,
+                 active_question, topic_digest, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     session_id,
                     topic,
@@ -262,6 +275,8 @@ class Database:
                     int(sources_only),
                     int(periodic_summary),
                     conversation_profile if conversation_profile in {"fast", "research", "verification"} else "fast",
+                    conversation_language,
+                    language_source,
                     topic,
                     json.dumps(provisional_digest),
                     now,
@@ -299,6 +314,8 @@ class Database:
             "sources_only",
             "periodic_summary",
             "conversation_profile",
+            "conversation_language",
+            "language_source",
             "state",
             "active_question",
             "topic_digest",
@@ -328,6 +345,20 @@ class Database:
         with self.connect() as db:
             db.execute(f"UPDATE sessions SET {', '.join(updates)} WHERE id = ?", values)
         return self.get_session(session_id)
+
+    def update_greeting_messages(self, session_id: str, momo: str, bobby: str) -> None:
+        replacements = {"Momo": momo, "Bobby": bobby}
+        messages = self.list_messages(session_id)
+        with self.connect() as db:
+            for message in messages:
+                if (message.get("metadata") or {}).get("kind") != "greeting":
+                    continue
+                content = replacements.get(str(message.get("speaker")))
+                if content:
+                    db.execute(
+                        "UPDATE messages SET content = ? WHERE id = ?",
+                        (content, message["id"]),
+                    )
 
     def create_round(self, session_id: str) -> dict[str, Any]:
         with self.connect() as db:

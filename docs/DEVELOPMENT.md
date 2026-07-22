@@ -15,7 +15,7 @@ This `academic-roundtable-github-ready` folder is the canonical development base
 
 ## Repository roles
 
-- `backend/app`: FastAPI routes, SQLite persistence, orchestration, provider adapters, prompts, document processing, ephemeral voice transcription, and learning evaluation
+- `backend/app`: FastAPI routes, SQLite persistence, orchestration, provider adapters, prompts, persistent language detection/enforcement, document processing, ephemeral voice transcription, and learning evaluation
 
 Voice tests use mocked HTTP transports and synthetic bytes; deterministic tests must never activate a microphone or call the live transcription provider. Manual voice testing requires localhost browser microphone permission and consumes OpenAI API capacity.
 - `backend/tests`: deterministic unit and API lifecycle tests
@@ -36,6 +36,8 @@ Copy-Item .env.example .env.local
 ```
 
 Real API keys remain in `.env.local`, which is ignored by Git. The application stores runtime state in `data/`, also ignored.
+
+Language behavior is centralized in `backend/app/language.py`. Add aliases and localized fixed text there, keep detected values constrained to the supported canonical language set, and add deterministic tests for any new explicit-request or document-detection form. Never interpolate raw user text into the output-language system tag.
 
 ### PDF extraction validation
 

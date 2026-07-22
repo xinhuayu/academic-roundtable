@@ -12,6 +12,7 @@ from .adapters import AdapterRegistry, GenerationRequest, ProviderError
 from .config import Settings
 from .database import Database
 from .documents import extract_passages, format_passage_group, group_passages_for_digest
+from .language import detect_document_language, localized_greetings, output_language_instruction
 from .prompts import (
     ACADEMIC_CONVERSATION_SKILL,
     DIGEST_SYSTEM_PROMPT,
@@ -31,6 +32,10 @@ ACADEMIC_MOVES = (
     "Identify a boundary condition or counterexample and explain why it matters.",
     "Synthesize what has changed in the discussion and deepen one unresolved issue.",
 )
+
+RESEARCH_MODE_INSTRUCTION = """
+Research-mode depth and output policy: develop the selected issue more deeply than a Fast turn. Write approximately 140-220 words in two compact, connected paragraphs. Trace the mechanism or inferential chain, examine the most consequential assumption, and include relevant mathematical, statistical, methodological, or theoretical detail when it materially clarifies the claim. Engage the preceding contribution explicitly and end with the strongest qualification or research implication. This policy replaces the ordinary 60-110-word target for this contribution; remain focused rather than encyclopedic.
+""".strip()
 
 
 def infer_participant_target(content: str, explicit_target: str = "roundtable") -> str:
@@ -54,8 +59,8 @@ def is_host_invitation(content: str) -> bool:
         return False
     final_paragraph = paragraphs[-1]
     return bool(
-        re.match(r"^Sam,\s+", final_paragraph, re.IGNORECASE)
-        and re.search(r"\?[\"'\u2019\u201d)]*$", final_paragraph)
+        re.match(r"^Sam[,:，：]\s*", final_paragraph, re.IGNORECASE)
+        and re.search(r"[?？][\"'\u2019\u201d)]*$", final_paragraph)
     )
 
 
@@ -66,6 +71,14 @@ def is_source_verification_request(content: str) -> bool:
     return bool(
         re.search(rf"\b{action}\b.{{0,100}}\b{source}\b", content, re.IGNORECASE)
         or re.search(rf"\b{source}\b.{{0,100}}\b{action}\b", content, re.IGNORECASE)
+        or re.search(
+            r"(?:核对|复核|查验|验证|重新查看|回到).{0,40}(?:原文|原始(?:PDF|文档|文件)|上传的?(?:PDF|文档|文件)|来源文档)",
+            content,
+        )
+        or re.search(
+            r"(?:原文|原始(?:PDF|文档|文件)|上传的?(?:PDF|文档|文件)|来源文档).{0,40}(?:核对|复核|查验|验证|重新查看|回到)",
+            content,
+        )
     )
 
 
@@ -92,7 +105,27 @@ SUMMARY_REQUEST_PATTERN = re.compile(
 
 def is_summary_request(content: str) -> bool:
     """Detect an explicit request to recap the roundtable, not a topical use of 'summary'."""
-    return bool(SUMMARY_REQUEST_PATTERN.search(content))
+    return bool(
+        SUMMARY_REQUEST_PATTERN.search(content)
+        or re.search(
+            r"(?:请|让我们|我们)?(?:总结|回顾|小结|概括)(?:一下)?(?:目前|刚才|最近|到目前为止|至今)?(?:的)?(?:对话|讨论|交流|内容|进展)?",
+            content,
+        )
+    )
+
+
+CLOSING_REQUEST_PATTERN = re.compile(
+    r"\b(let(?:'|\u2019)s\s+(?:finish|conclude|wrap\s+up)|"
+    r"(?:finish|conclude|end|close)\s+(?:this|the|our)\s+(?:session|conversation|discussion)|"
+    r"wrap\s+up\s+(?:this|the|our)\s+(?:session|conversation|discussion))\b|"
+    r"(?:让我们|我们)?(?:结束|完成|收尾|结束掉|告一段落)(?:这次|本次|今天的)?(?:圆桌|会话|对话|讨论|交流|会议)",
+    re.IGNORECASE,
+)
+
+
+def is_closing_request(content: str) -> bool:
+    """Detect an explicit request to end the current roundtable."""
+    return bool(CLOSING_REQUEST_PATTERN.search(content))
 
 
 def parse_json_object(text: str) -> dict[str, Any] | None:
@@ -233,6 +266,8 @@ class RoundtableService:
             )
             token_multiplier = self.settings.research_live_token_multiplier
             timeout_multiplier = self.settings.research_live_timeout_multiplier
+            live_instruction = RESEARCH_MODE_INSTRUCTION
+            verbosity = "medium"
         elif profile == "verification":
             model = (
                 self.settings.verification_momo_model
@@ -246,11 +281,15 @@ class RoundtableService:
             )
             token_multiplier = self.settings.verification_live_token_multiplier
             timeout_multiplier = self.settings.verification_live_timeout_multiplier
+            live_instruction = "Verification mode: prioritize exact evidentiary checking and calibrated conclusions; remain concise unless the verification requires additional methodological detail."
+            verbosity = "medium"
         else:
             model = provider.model
             reasoning = provider.reasoning_effort
             token_multiplier = self.settings.live_turn_token_multiplier
             timeout_multiplier = self.settings.live_turn_timeout_multiplier
+            live_instruction = "Fast mode: make one compact contribution using the ordinary 60-110-word target."
+            verbosity = "low"
         # Digests have always used at least medium reasoning. Verification and
         # source-heavy jobs use high reasoning; live turns preserve the profile.
         if task != "live":
@@ -261,6 +300,8 @@ class RoundtableService:
             "reasoning_effort": reasoning,
             "token_multiplier": token_multiplier,
             "timeout_multiplier": timeout_multiplier,
+            "live_instruction": live_instruction,
+            "verbosity": verbosity,
             "digest_timeout_multiplier": 1.0 if profile == "fast" else (1.5 if profile == "research" else 2.0),
             "digest_token_multiplier": 1.0 if profile == "fast" else (1.5 if profile == "research" else 2.0),
         }
@@ -275,7 +316,7 @@ class RoundtableService:
             {
                 "id": "research",
                 "label": "Research mode",
-                "description": "Flagship models with medium reasoning and expanded budgets.",
+                "description": "Flagship models with medium reasoning, deeper 140-220-word turns, and enlarged budgets.",
             },
             {
                 "id": "verification",
@@ -303,6 +344,51 @@ class RoundtableService:
 
     def _scaled_timeout(self, base_seconds: float, multiplier: float, minimum: float = 1.0) -> float:
         return max(minimum, base_seconds * multiplier)
+
+    @staticmethod
+    def _system_prompt(session: dict[str, Any], *parts: str) -> str:
+        return "\n\n".join(
+            [part for part in parts if part] + [output_language_instruction(session)]
+        )
+
+    def set_conversation_language(
+        self,
+        session_id: str,
+        language: str,
+        source: str,
+    ) -> dict[str, Any] | None:
+        session = self.db.get_session(session_id)
+        if not session:
+            return None
+        if source == "source_document" and session.get("language_source") == "sam":
+            return session
+        messages = self.db.list_messages(session_id)
+        substantive_exists = any(
+            (message.get("metadata") or {}).get("kind") != "greeting"
+            for message in messages
+        )
+        updated = self.db.update_session(
+            session_id,
+            conversation_language=language,
+            language_source=source,
+        )
+        if not substantive_exists:
+            self.db.update_greeting_messages(session_id, *localized_greetings(language))
+        return updated
+
+    def _adopt_document_language(
+        self,
+        session_id: str,
+        passages: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        sample = "\n".join(str(item.get("content") or "") for item in passages)
+        language = detect_document_language(sample)
+        session = self.db.get_session(session_id)
+        if not session:
+            return None
+        if language != "English" and session.get("language_source") == "default":
+            return self.set_conversation_language(session_id, language, "source_document")
+        return session
 
     def _has_long_sam_input(
         self,
@@ -490,8 +576,9 @@ class RoundtableService:
         persona = PERSONAS[speaker]
         if speaker == "Momo" and self.momo_skill:
             persona = f"{persona}\n\n{self.momo_skill}"
-        system = "\n\n".join(
-            [
+        system = self._system_prompt(
+            session,
+            *[
                 persona,
                 ACADEMIC_CONVERSATION_SKILL,
                 f"Session evidence policy: {source_rule}",
@@ -499,6 +586,7 @@ class RoundtableService:
                 response_priority,
                 host_instruction,
                 verification_instruction,
+                profile["live_instruction"],
             ]
         )
         topic_digest = clip_text(
@@ -549,7 +637,7 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                 * (self.settings.long_sam_input_token_multiplier if long_sam_input else 1.0),
             ),
             reasoning_effort=profile["reasoning_effort"],
-            verbosity="low",
+            verbosity=profile["verbosity"],
             model=profile["model"],
             stream_idle_timeout=self._scaled_timeout(
                 self.adapters.get(speaker).config.stream_idle_timeout,
@@ -993,7 +1081,7 @@ Transcript:
             adapter = self._digest_adapter()
             digest_profile = self._profile_parameters(session, adapter.config.participant, task="digest")
             request = GenerationRequest(
-                system=DIGEST_SYSTEM_PROMPT,
+                system=self._system_prompt(session, DIGEST_SYSTEM_PROMPT),
                 messages=[{"role": "user", "content": user_content}],
                 max_output_tokens=self.settings.conversation_digest_max_output_tokens,
                 reasoning_effort=digest_profile["reasoning_effort"],
@@ -1100,11 +1188,12 @@ Transcript:
             )
             source_token_multiplier, source_timeout_multiplier = self._source_boosts(session_id)
             request = GenerationRequest(
-                system="\n\n".join(
-                    part for part in (
+                system=self._system_prompt(
+                    session,
+                    *(
                         FINAL_SUMMARY_SYSTEM_PROMPT,
                         self.momo_comprehensive_summary_skill,
-                    ) if part
+                    ),
                 ),
                 messages=[{
                     "role": "user",
@@ -1231,8 +1320,9 @@ Transcript:
                 f"Digest context (background knowledge, inferences, and open questions included):\n{background_and_inferences}"
             )
             persona = PERSONAS["Momo"]
-            system = "\n\n".join(
-                [
+            system = self._system_prompt(
+                session,
+                *[
                     persona,
                     ONE_PAGE_SUMMARY_SYSTEM_PROMPT,
                     self.momo_one_page_summary_skill,
@@ -1341,7 +1431,7 @@ Source summaries:
                 session, topic_adapter.config.participant, task="digest"
             )
             request = GenerationRequest(
-                system=TOPIC_DIGEST_SYSTEM_PROMPT,
+                system=self._system_prompt(session, TOPIC_DIGEST_SYSTEM_PROMPT),
                 messages=[{"role": "user", "content": content}],
                 max_output_tokens=self.settings.topic_digest_max_output_tokens,
                 reasoning_effort=topic_profile["reasoning_effort"],
@@ -1380,6 +1470,7 @@ Source summaries:
             passages = await asyncio.to_thread(extract_passages, path)
             if not passages:
                 raise ValueError("No extractable text was found")
+            session = self._adopt_document_language(document["session_id"], passages) or session
             self.db.replace_passages(document_id, document["filename"], passages)
             groups = group_passages_for_digest(passages)
             section_digests: list[str] = []
@@ -1393,7 +1484,7 @@ Source summaries:
                     detail=f"Digesting section {index + 1} of {len(groups)}",
                 )
                 request = GenerationRequest(
-                    system=SOURCE_DIGEST_SYSTEM_PROMPT,
+                    system=self._system_prompt(session, SOURCE_DIGEST_SYSTEM_PROMPT),
                     messages=[
                         {
                             "role": "user",
@@ -1428,7 +1519,7 @@ Source summaries:
                 separator="\n\n---\n\n",
             )
             synthesis_request = GenerationRequest(
-                system=SOURCE_DIGEST_SYSTEM_PROMPT,
+                system=self._system_prompt(session, SOURCE_DIGEST_SYSTEM_PROMPT),
                 messages=[
                     {
                         "role": "user",

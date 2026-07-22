@@ -18,6 +18,7 @@ from .config import get_settings
 from .database import Database
 from .documents import MAX_UPLOAD_BYTES, extract_dependency_health, safe_extension
 from .evaluation import RUBRIC, analyze_session, apply_human_ratings, rating_template
+from .language import detect_explicit_language_request, localized_closing, localized_greetings
 from .schemas import (
     LearningEvaluationSubmission,
     RecapRequest,
@@ -29,6 +30,7 @@ from .schemas import (
 from .service import (
     RoundtableService,
     infer_participant_target,
+    is_closing_request,
     is_summary_request,
     is_source_verification_request,
 )
@@ -99,6 +101,7 @@ def render_session_markdown(view: dict[str, Any]) -> str:
         f"# {view['topic']}",
         "",
         f"**Learning goal:** {view['learning_goal']}",
+        f"**Conversation language:** {view.get('conversation_language', 'English')}",
         f"**Completed rounds:** {view['completed_rounds']}",
         "",
         "## Topic Digest",
@@ -160,6 +163,7 @@ def render_summary_digest(view: dict[str, Any]) -> str:
         f"# Summary Digest: {view['topic']}",
         "",
         f"**Learning goal:** {view['learning_goal']}",
+        f"**Conversation language:** {view.get('conversation_language', 'English')}",
         f"**Completed rounds:** {view['completed_rounds']}",
         "",
         "## Comprehensive final synthesis",
@@ -244,6 +248,10 @@ async def create_session(payload: SessionCreate) -> dict[str, Any]:
         )
     if payload.force_reset:
         await purge_all_sessions_safely()
+    requested_language = detect_explicit_language_request(
+        f"{payload.topic}\n{payload.learning_goal}"
+    )
+    conversation_language = requested_language or "English"
     session = database.create_session(
         topic=payload.topic,
         learning_goal=payload.learning_goal,
@@ -251,6 +259,8 @@ async def create_session(payload: SessionCreate) -> dict[str, Any]:
         sources_only=payload.sources_only,
         periodic_summary=payload.periodic_summary,
         conversation_profile=payload.conversation_profile,
+        conversation_language=conversation_language,
+        language_source="sam" if requested_language else "default",
     )
     database.add_message(
         session["id"],
@@ -263,6 +273,9 @@ async def create_session(payload: SessionCreate) -> dict[str, Any]:
         "Bobby",
         "Hello, Sam—I'm Bobby. I’m ready when you are; you can set our first scientific direction.",
         metadata={"kind": "greeting"},
+    )
+    database.update_greeting_messages(
+        session["id"], *localized_greetings(conversation_language)
     )
     return session_view(session["id"])
 
@@ -433,12 +446,6 @@ async def update_session(session_id: str, payload: SessionSettingsUpdate) -> dic
 
 
 PERIODIC_PATTERN = re.compile(r"\b(periodic|every (?:five|six|5|6) rounds)\b", re.IGNORECASE)
-CLOSING_PATTERN = re.compile(
-    r"\b(let(?:'|’)s\s+(?:finish|conclude|wrap\s+up)|"
-    r"(?:finish|conclude|end|close)\s+(?:this|the|our)\s+(?:session|conversation|discussion)|"
-    r"wrap\s+up\s+(?:this|the|our)\s+(?:session|conversation|discussion))\b",
-    re.IGNORECASE,
-)
 
 
 def ensure_closing_message(session_id: str, target: str = "roundtable") -> dict[str, Any]:
@@ -451,11 +458,12 @@ def ensure_closing_message(session_id: str, target: str = "roundtable") -> dict[
     )
     if existing:
         return existing
+    session = require_session(session_id)
     closing_speaker = service.choose_next_speaker(session_id, target)
     return database.add_message(
         session_id,
         closing_speaker,
-        "Thank you, Sam—this was a thoughtful conversation. Let’s finish here.",
+        localized_closing(str(session.get("conversation_language") or "English")),
         metadata={"kind": "closing"},
     )
 
@@ -466,6 +474,9 @@ async def add_sam_message(session_id: str, payload: SamMessage) -> dict[str, Any
     if current_session["state"] in {"CLOSING", "CLOSED"}:
         raise HTTPException(status_code=409, detail="This session has already concluded")
     was_interrupted = await service.interrupt_and_wait(session_id)
+    requested_language = detect_explicit_language_request(payload.content)
+    if requested_language:
+        service.set_conversation_language(session_id, requested_language, "sam")
     inferred_target = infer_participant_target(payload.content, payload.target)
     source_verification_requested = is_source_verification_request(payload.content)
     message = database.add_message(
@@ -484,7 +495,9 @@ async def add_sam_message(session_id: str, payload: SamMessage) -> dict[str, Any
     database.update_session(session_id, active_question=payload.content)
     starting_speaker = service.choose_next_speaker(session_id, inferred_target)
     action: dict[str, Any] = {"message": message, "interrupted": was_interrupted}
-    if CLOSING_PATTERN.search(payload.content):
+    if requested_language:
+        action["conversation_language"] = requested_language
+    if is_closing_request(payload.content):
         await service.cancel_session_background_tasks(session_id)
         action["closing_message"] = ensure_closing_message(session_id, inferred_target)
         action["final_summary_job"] = service.request_final_summary(session_id)

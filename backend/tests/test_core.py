@@ -10,10 +10,16 @@ import pytest
 from app.adapters import GenerationRequest, LLMAdapter, ProviderError
 from app.config import ProviderConfig, Settings, get_settings, provider_from_env
 from app.database import Database
+from app.language import (
+    detect_document_language,
+    detect_explicit_language_request,
+    output_language_instruction,
+)
 from app.prompts import ACADEMIC_CONVERSATION_SKILL, PERSONAS
 from app.service import (
     RoundtableService,
     infer_participant_target,
+    is_closing_request,
     is_host_invitation,
     is_summary_request,
     is_source_verification_request,
@@ -276,9 +282,101 @@ def test_research_profile_selects_flagship_models_and_expanded_budget(tmp_path: 
     assert bobby_request.model == "gemini-3.1-pro-preview"
     assert momo_request.reasoning_effort == "medium"
     assert bobby_request.reasoning_effort == "medium"
-    assert momo_request.max_output_tokens == 1600
-    assert bobby_request.max_output_tokens == 2800
-    assert momo_request.stream_idle_timeout == 90
+    assert momo_request.max_output_tokens == 2200
+    assert bobby_request.max_output_tokens == 3850
+    assert momo_request.stream_idle_timeout == 112.5
+    assert momo_request.verbosity == "medium"
+    assert bobby_request.verbosity == "medium"
+    assert "140-220 words" in momo_request.system
+    assert "140-220 words" in bobby_request.system
+
+
+def test_legacy_research_multipliers_are_raised_to_deeper_minimums(monkeypatch) -> None:
+    monkeypatch.setenv("RESEARCH_LIVE_TOKEN_MULTIPLIER", "2.0")
+    monkeypatch.setenv("RESEARCH_LIVE_TIMEOUT_MULTIPLIER", "2.0")
+
+    settings = get_settings()
+
+    assert settings.research_live_token_multiplier == 2.75
+    assert settings.research_live_timeout_multiplier == 2.5
+
+
+@pytest.mark.parametrize(
+    ("content", "language"),
+    [
+        ("Please conduct this conversation in Chinese.", "Chinese"),
+        ("Okay, respond in Spanish from now on.", "Spanish"),
+        ("请用中文回答，并保持学术讨论。", "Chinese"),
+        ("Switch the discussion to Japanese.", "Japanese"),
+        ("French language conversation, please.", "French"),
+    ],
+)
+def test_explicit_conversation_language_detection(content: str, language: str) -> None:
+    assert detect_explicit_language_request(content) == language
+
+
+def test_language_detection_ignores_topical_country_or_language_mentions() -> None:
+    assert detect_explicit_language_request(
+        "Compare the Chinese cohort with the English cohort and examine language compatibility."
+    ) is None
+
+
+def test_source_language_detection_handles_chinese_and_spanish() -> None:
+    chinese = "本研究分析认知轨迹与后续健康状态之间的关系，并讨论测量误差、选择偏倚和因果解释。" * 8
+    spanish = (
+        "El estudio analiza los resultados de salud y la trayectoria cognitiva. "
+        "Los resultados muestran que la medición y el diseño son importantes para la interpretación. "
+    ) * 8
+
+    assert detect_document_language(chinese) == "Chinese"
+    assert detect_document_language(spanish) == "Spanish"
+
+
+def test_source_language_persists_and_sam_can_override_it(tmp_path: Path) -> None:
+    db = make_db(tmp_path)
+    session = db.create_session("认知轨迹", "深入讨论", 2, False, False)
+    db.add_message(session["id"], "Momo", "Hello", metadata={"kind": "greeting"})
+    db.add_message(session["id"], "Bobby", "Hello", metadata={"kind": "greeting"})
+    provider = ProviderConfig(
+        participant="Momo", base_url="https://example.invalid/v1", model="fake",
+        api_style="responses", api_key_env="FAKE_KEY", reasoning_effort="low",
+    )
+    settings = Settings(
+        project_root=tmp_path, data_dir=tmp_path, uploads_dir=tmp_path / "uploads",
+        db_path=tmp_path / "test.sqlite3", host="127.0.0.1", port=8765,
+        digest_provider="momo", digest_interval=6, recent_round_count=5,
+        host_checkpoint_interval=3, live_max_output_tokens=350,
+        conversation_digest_max_output_tokens=2000, topic_digest_max_output_tokens=3000,
+        source_digest_max_output_tokens=4000, momo=provider, bobby=provider,
+    )
+    service = RoundtableService(settings, db, FakeRegistry())
+    passages = [{"content": "本研究讨论认知轨迹、健康结局、选择偏倚和因果解释。" * 12}]
+
+    service._adopt_document_language(session["id"], passages)
+    adopted = db.get_session(session["id"])
+    greetings = db.list_messages(session["id"])
+
+    assert adopted["conversation_language"] == "Chinese"
+    assert adopted["language_source"] == "source_document"
+    assert greetings[0]["content"].startswith("你好")
+    assert greetings[1]["content"].startswith("你好")
+    request = service.build_context(adopted, "Momo", 0)
+    assert '<output_language name="Chinese">' in request.system
+    assert "every human-readable string value in Chinese" in request.system
+
+    service.set_conversation_language(session["id"], "English", "sam")
+    service._adopt_document_language(
+        session["id"], [{"content": "日本語の研究文書と方法論の説明です。" * 20}]
+    )
+    overridden = db.get_session(session["id"])
+    assert overridden["conversation_language"] == "English"
+    assert overridden["language_source"] == "sam"
+
+
+def test_output_language_instruction_keeps_json_schema_keys() -> None:
+    instruction = output_language_instruction({"conversation_language": "Chinese"})
+    assert '<output_language name="Chinese">' in instruction
+    assert "keep the required schema keys exactly as specified" in instruction
 
 
 def test_academic_roles_require_depth_and_distinct_critical_angles() -> None:
@@ -447,6 +545,7 @@ def test_complete_final_question_invites_sam() -> None:
         "Sam, which assumption should we examine next?"
     )
     assert is_host_invitation(contribution)
+    assert is_host_invitation("这两种解释依赖不同的识别假设。\n\nSam，你希望我们接下来检验哪一个假设？")
 
 
 def test_greetings_are_excluded_from_initial_live_context(tmp_path: Path) -> None:
@@ -1003,6 +1102,12 @@ def test_source_verification_request_detection(content: str) -> None:
 )
 def test_ordinary_source_discussion_does_not_reopen_extracts(content: str) -> None:
     assert is_source_verification_request(content) is False
+
+
+def test_chinese_control_intents_are_detected() -> None:
+    assert is_summary_request("请总结一下目前的讨论。") is True
+    assert is_source_verification_request("请回到原始PDF核对这个数字。") is True
+    assert is_closing_request("让我们结束本次圆桌讨论。") is True
 
 
 def test_interrupt_cancels_stalled_stream_and_preserves_partial_text(tmp_path: Path) -> None:

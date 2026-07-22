@@ -31,7 +31,7 @@ The next investment should still emphasize measurement. The manually stopped, re
 | P1 | Learning quality has no repeatable evaluation harness | Prompt changes cannot be compared safely | Highest-priority next increment |
 | P1 | Upload validation is extension/size oriented | Public deployment would need stronger content controls | Planned before any remote pilot |
 | P2 | Lexical retrieval quality is not measured | Evidence selection may miss conceptual matches | Evaluate before adding hybrid retrieval |
-| P2 | Host intent relies partly on English phrase matching | Paraphrases and multilingual commands can be missed | Defer until observed in pilot data |
+| P2 | Host intent matching cannot cover every language or paraphrase | Unrecognized recap/closeout/source-check commands may be treated as ordinary discussion | English and Chinese control forms are covered; extend from multilingual pilot fixtures |
 | P3 | No authentication or user isolation | Unsuitable for shared/public hosting | Explicitly postponed |
 
 ## Implemented reliability changes
@@ -53,6 +53,8 @@ At application startup, abandoned queued/running jobs, processing documents, act
 Every live request includes the Topic Digest, latest Conversation Digest, active question, the five most recent complete rounds, and any processed document digest, with hard character budgets for each section and the combined history. Ordinary rounds do not resend raw passages. Only Sam's explicit request to check or verify the original source activates one-segment retrieval; those excerpts are labeled as untrusted evidence so document text cannot masquerade as system instruction. Clipping is visible in the prompt and never deletes stored data.
 
 Character ceilings are a pragmatic MVP control. Selective Fast/Research/Verification profiles now provide model-aware budget and timeout multipliers; a later provider-capability layer should estimate tokens per model and reserve output capacity precisely.
+
+Persistent language state now prevents casual provider language drift: a conservative non-English source signal can initialize the session, Sam's explicit request takes precedence, and a protected language tag is attached to every live and synthesis request. Remaining risk is heuristic classification of mixed-language, closely related Latin-language, or poor-OCR sources. The UI exposes the active language so Sam can correct it explicitly; production-quality language identification should be justified by fixture evidence rather than added pre-emptively.
 
 ## Architecture critique
 

@@ -22,6 +22,7 @@ Ordinary multi-agent chats tend to become long parallel monologues. Academic Rou
 - Live turns use the Topic Digest, latest Conversation Digest, active question, and five recent rounds.
 - Uploaded sources can ground the discussion, while allowed model knowledge is labeled as background knowledge.
 - Sam can choose Fast discussion, Research mode, or Verification mode. Research and Verification route live turns and background digests to configured flagship models with medium or high reasoning and larger, longer budgets; the Fast profile remains the low-latency default.
+- The conversation language is persistent session state. A clearly non-English source can set it automatically, while an explicit request from Sam (for example, “respond in Chinese” or “请用中文回答”) takes precedence for the rest of the session. Every live turn and every digest/summary request receives a protected output-language instruction.
 - The AI LLM mode is an explicit button group on both the landing page and conversation page. The conversation control applies to the next segment and is disabled while the AIs are streaming.
 - Full transcripts and digest history remain available as inputs to final synthesis and in the complete archive. The closeout Summary Digest contains only Momo's comprehensive synthesized learning record; it does not append the Topic Digest, processed-source digests, current Conversation Digest, or earlier digest history.
 - The closeout page shows a highlighted blue status notice while final and one-page summaries are generated. After processing, the save/download row appears first and **Evaluate learning** follows beneath it; saved rubric results are included in later downloads.
@@ -57,6 +58,7 @@ flowchart LR
 - PDF, TXT, and Markdown upload, extraction, digestion, and FTS5 retrieval
 - PDF extraction uses PyMuPDF + pdfplumber for table-aware extraction and figure-object detection cues (pypdf fallback remains for compatibility)
 - Sources-only mode or labeled internal background knowledge
+- Persistent multilingual discussion, digest, summary, greeting, and closeout output, with Sam's explicit language choice taking precedence over automatic source-language detection
 - Conversation-first rolling interface with persistent host controls
 - Highlighted Sam composer whenever Sam has the floor
 - Optional Sam voice input during the human floor, or **Interrupt and speak** during an AI segment; recordings continue until Sam stops them, are transcribed with topic-aware light spelling/punctuation correction, and return to the composer for review and editing before submission
@@ -149,6 +151,8 @@ DIGEST_PROVIDER=momo
 FINAL_SUMMARY_MAX_OUTPUT_TOKENS=6000
 DIGEST_SECTION_TIMEOUT_SECONDS=300
 DIGEST_JOB_TIMEOUT_SECONDS=900
+RESEARCH_LIVE_TOKEN_MULTIPLIER=2.75
+RESEARCH_LIVE_TIMEOUT_MULTIPLIER=2.5
 ```
 
 `MOMO_API_KEY_ENV` and `BOBBY_API_KEY_ENV` contain the **names** of environment variables, not the secrets themselves.
@@ -161,10 +165,16 @@ Reasoning is task-aware. Fast live turns use each participant's configured effor
 The default `.env.example` includes separate model and reasoning settings for the profiles:
 
 - **Fast discussion:** current provider defaults, low reasoning, shortest latency.
-- **Research mode:** GPT-5.6 Sol for Momo and Gemini 3.1 Pro Preview for Bobby by default, medium reasoning, approximately 2× live allowances and longer deadlines.
+- **Research mode:** GPT-5.6 Sol for Momo and Gemini 3.1 Pro Preview for Bobby by default, medium reasoning, 2.75× live token allowances and 2.5× live deadlines. Each AI is asked for a focused 140–220-word contribution in two connected paragraphs, including the relevant inferential, methodological, statistical, mathematical, or theoretical detail.
 - **Verification mode:** the same flagship pair by default, high reasoning, approximately 2× live allowances and 2.5× live deadlines. Raw PDF/document excerpts are still withheld unless Sam explicitly asks to check the original source.
 
 Use Research or Verification for derivations, statistical model comparisons, sensitivity analysis, disputed claims, or source checks. For numerical work, add a calculator/Python/R verification step; model reasoning does not replace deterministic computation.
+
+### Conversation language
+
+The session stores a canonical conversation language and how it was selected. A strongly detected non-English uploaded source may set the language when Sam has not chosen one. Sam can change it at any time with a direct instruction such as “continue in Spanish,” “output in Japanese,” or “请用中文回答”; this explicit choice cannot later be overwritten by another document.
+
+A constrained `<output_language>` instruction is appended to every participant, source-digest, Topic Digest, Conversation Digest, final-summary, and one-page-summary system prompt. Visible prose and summary values must use the selected language, while JSON field names, formulas, proper nouns, and exact quotations remain stable. The active language is shown in the conversation header and recorded in readable exports. Automatic detection is deliberately conservative and may require Sam's explicit instruction for mixed-language, closely related Latin-language, or poor-OCR documents.
 
 Check connectivity without displaying credentials:
 

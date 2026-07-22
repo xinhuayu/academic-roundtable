@@ -47,6 +47,8 @@ def build_transcription_prompt(session: dict[str, Any]) -> str:
         "uncertainty, questions, names, numbers, and technical qualifications. Apply only light "
         "punctuation, obvious grammar, and likely spelling corrections; do not summarize, add claims, "
         "or make the argument more certain.\n"
+        f"Roundtable output language after submission: {session.get('conversation_language', 'English')} "
+        "(preserve the language Sam actually speaks in this editable transcript; do not translate it).\n"
         f"Roundtable topic: {session.get('topic', '')}\n"
         f"Active question: {session.get('active_question', '')}\n"
         f"Relevant academic terms: {concepts}"

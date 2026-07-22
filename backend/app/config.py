@@ -106,8 +106,8 @@ class Settings:
     verification_bobby_model: str = "gemini-3.1-pro-preview"
     verification_momo_reasoning_effort: str = "high"
     verification_bobby_reasoning_effort: str = "high"
-    research_live_token_multiplier: float = 2.0
-    research_live_timeout_multiplier: float = 2.0
+    research_live_token_multiplier: float = 2.75
+    research_live_timeout_multiplier: float = 2.5
     verification_live_token_multiplier: float = 2.0
     verification_live_timeout_multiplier: float = 2.5
     voice_transcription_base_url: str = "https://api.openai.com/v1"
@@ -140,6 +140,10 @@ def get_settings() -> Settings:
     raw_data_dir = Path(os.getenv("ROUNDTABLE_DATA_DIR", "./data"))
     data_dir = raw_data_dir if raw_data_dir.is_absolute() else PROJECT_ROOT / raw_data_dir
     live_default = max(250, env_int("LIVE_MAX_OUTPUT_TOKENS", 800))
+    research_token_multiplier = env_float("RESEARCH_LIVE_TOKEN_MULTIPLIER", 2.75)
+    if research_token_multiplier <= 2.0:
+        # Migrate the former 2.0 default to the deeper Research policy.
+        research_token_multiplier = 2.75
     return Settings(
         project_root=PROJECT_ROOT,
         data_dir=data_dir,
@@ -197,10 +201,10 @@ def get_settings() -> Settings:
         verification_momo_reasoning_effort=os.getenv("VERIFICATION_MOMO_REASONING_EFFORT", "high"),
         verification_bobby_reasoning_effort=os.getenv("VERIFICATION_BOBBY_REASONING_EFFORT", "high"),
         research_live_token_multiplier=_bound_multiplier(
-            env_float("RESEARCH_LIVE_TOKEN_MULTIPLIER", 2.0), 1.0, 3.0
+            research_token_multiplier, 2.5, 3.5
         ),
         research_live_timeout_multiplier=_bound_multiplier(
-            env_float("RESEARCH_LIVE_TIMEOUT_MULTIPLIER", 2.0), 1.0, 4.0
+            env_float("RESEARCH_LIVE_TIMEOUT_MULTIPLIER", 2.5), 2.5, 4.0
         ),
         verification_live_token_multiplier=_bound_multiplier(
             env_float("VERIFICATION_LIVE_TOKEN_MULTIPLIER", 2.0), 1.0, 3.0
