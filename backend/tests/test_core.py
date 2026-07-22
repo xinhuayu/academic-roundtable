@@ -101,7 +101,7 @@ def test_chat_completions_forwards_task_reasoning_effort(monkeypatch) -> None:
     provider = ProviderConfig(
         participant="Bobby",
         base_url="https://example.invalid/v1",
-        model="gemini-3.1-flash-lite",
+        model="gemini-3.5-flash-lite",
         api_style="chat_completions",
         api_key_env="FAKE_GEMINI_KEY",
         reasoning_effort="low",
@@ -121,7 +121,7 @@ def test_chat_completions_forwards_task_reasoning_effort(monkeypatch) -> None:
                 messages=[{"role": "user", "content": "Synthesize"}],
                 max_output_tokens=4000,
                 reasoning_effort="medium",
-                model="gemini-3.1-pro-preview",
+                model="gemini-3.6-flash",
             )
             return await adapter.generate(request)
         finally:
@@ -130,7 +130,7 @@ def test_chat_completions_forwards_task_reasoning_effort(monkeypatch) -> None:
     assert asyncio.run(scenario()) == "Ready"
     assert captured["reasoning_effort"] == "medium"
     assert captured["max_tokens"] == 4000
-    assert captured["model"] == "gemini-3.1-pro-preview"
+    assert captured["model"] == "gemini-3.6-flash"
 
 
 def test_chat_completion_length_finish_is_not_silent_success(monkeypatch) -> None:
@@ -147,7 +147,7 @@ def test_chat_completion_length_finish_is_not_silent_success(monkeypatch) -> Non
     provider = ProviderConfig(
         participant="Bobby",
         base_url="https://example.invalid/v1",
-        model="gemini-3.1-flash-lite",
+        model="gemini-3.5-flash-lite",
         api_style="chat_completions",
         api_key_env="FAKE_GEMINI_KEY",
         reasoning_effort="low",
@@ -249,6 +249,15 @@ def test_momo_digest_and_participant_budget_defaults(monkeypatch) -> None:
         "LIVE_MAX_OUTPUT_TOKENS",
         "MOMO_LIVE_MAX_OUTPUT_TOKENS",
         "BOBBY_LIVE_MAX_OUTPUT_TOKENS",
+        "BOBBY_MODEL",
+        "RESEARCH_BOBBY_MODEL",
+        "VERIFICATION_BOBBY_MODEL",
+        "GEMINI_FAST_MIN_OUTPUT_TOKENS",
+        "GEMINI_RESEARCH_MIN_OUTPUT_TOKENS",
+        "GEMINI_VERIFICATION_MIN_OUTPUT_TOKENS",
+        "GEMINI_MAX_OUTPUT_TOKENS",
+        "GEMINI_RESEARCH_TIMEOUT_MULTIPLIER",
+        "GEMINI_VERIFICATION_TIMEOUT_MULTIPLIER",
     ):
         monkeypatch.delenv(name, raising=False)
     settings = get_settings()
@@ -256,6 +265,17 @@ def test_momo_digest_and_participant_budget_defaults(monkeypatch) -> None:
     assert settings.live_max_output_tokens == 800
     assert settings.momo_live_max_output_tokens == 800
     assert settings.bobby_live_max_output_tokens == 1400
+    assert settings.bobby.model == "gemini-3.5-flash-lite"
+    assert settings.research_bobby_model == "gemini-3.6-flash"
+    assert settings.research_bobby_reasoning_effort == "medium"
+    assert settings.verification_bobby_model == "gemini-2.5-pro"
+    assert settings.verification_bobby_reasoning_effort == "high"
+    assert settings.gemini_fast_min_output_tokens == 4096
+    assert settings.gemini_research_min_output_tokens == 12288
+    assert settings.gemini_verification_min_output_tokens == 32768
+    assert settings.gemini_max_output_tokens == 65536
+    assert settings.gemini_research_timeout_multiplier == 1.35
+    assert settings.gemini_verification_timeout_multiplier == 1.5
 
 
 def test_research_profile_selects_flagship_models_and_expanded_budget(tmp_path: Path) -> None:
@@ -275,20 +295,93 @@ def test_research_profile_selects_flagship_models_and_expanded_budget(tmp_path: 
         conversation_digest_max_output_tokens=2000, topic_digest_max_output_tokens=3000,
         source_digest_max_output_tokens=4000, momo=provider, bobby=provider,
     )
-    service = RoundtableService(settings, db, FakeRegistry())
+    registry = FakeRegistry()
+    service = RoundtableService(settings, db, registry)
     momo_request = service.build_context(db.get_session(session["id"]), "Momo", 0)
     bobby_request = service.build_context(db.get_session(session["id"]), "Bobby", 1)
     assert momo_request.model == "gpt-5.6-sol"
-    assert bobby_request.model == "gemini-3.1-pro-preview"
+    assert bobby_request.model == "gemini-3.6-flash"
     assert momo_request.reasoning_effort == "medium"
     assert bobby_request.reasoning_effort == "medium"
     assert momo_request.max_output_tokens == 2200
-    assert bobby_request.max_output_tokens == 3850
+    assert bobby_request.max_output_tokens == 12288
     assert momo_request.stream_idle_timeout == 112.5
+    assert bobby_request.stream_idle_timeout == 151.875
     assert momo_request.verbosity == "medium"
     assert bobby_request.verbosity == "medium"
     assert "140-220 words" in momo_request.system
     assert "140-220 words" in bobby_request.system
+    research_meta = next(item for item in service.profile_metadata() if item["id"] == "research")
+    assert research_meta["participants"]["Momo"] == {
+        "model": "gpt-5.6-sol", "reasoning_effort": "medium"
+    }
+    assert research_meta["participants"]["Bobby"] == {
+        "model": "gemini-3.6-flash", "reasoning_effort": "medium"
+    }
+    verification_meta = next(
+        item for item in service.profile_metadata() if item["id"] == "verification"
+    )
+    assert verification_meta["participants"]["Bobby"] == {
+        "model": "gemini-2.5-pro", "reasoning_effort": "high"
+    }
+
+    async def collect():
+        return [event async for event in service.stream_segment(session["id"], rounds=2)]
+
+    events = asyncio.run(collect())
+    starts = [event for event in events if event["type"] == "message_start"]
+    assert {(event["speaker"], event["model"], event["reasoning_effort"]) for event in starts} == {
+        ("Momo", "gpt-5.6-sol", "medium"),
+        ("Bobby", "gemini-3.6-flash", "medium"),
+    }
+    ai_messages = [message for message in db.list_messages(session["id"]) if message["speaker"] in {"Momo", "Bobby"}]
+    assert all(message["metadata"]["profile"] == "research" for message in ai_messages)
+    assert {message["metadata"]["model"] for message in ai_messages} == {
+        "gpt-5.6-sol", "gemini-3.6-flash"
+    }
+
+
+def test_gemini_live_reserves_cover_thinking_and_remain_capped(tmp_path: Path) -> None:
+    db = make_db(tmp_path)
+    session = db.create_session(
+        "Model uncertainty", "Stress-test inference", 2, False, False, "fast"
+    )
+    provider = ProviderConfig(
+        participant="Bobby",
+        base_url="https://example.invalid/v1",
+        model="gemini-3.5-flash-lite",
+        api_style="chat_completions",
+        api_key_env="FAKE_KEY",
+        reasoning_effort="low",
+        first_token_timeout=90,
+        stream_idle_timeout=90,
+        total_timeout=480,
+    )
+    settings = Settings(
+        project_root=tmp_path, data_dir=tmp_path, uploads_dir=tmp_path / "uploads",
+        db_path=tmp_path / "test.sqlite3", host="127.0.0.1", port=8765,
+        digest_provider="momo", digest_interval=6, recent_round_count=5,
+        host_checkpoint_interval=3, live_max_output_tokens=350,
+        conversation_digest_max_output_tokens=2000, topic_digest_max_output_tokens=3000,
+        source_digest_max_output_tokens=4000, momo=provider, bobby=provider,
+    )
+    registry = FakeRegistry()
+    registry.items["Bobby"].config = provider
+    service = RoundtableService(settings, db, registry)
+
+    fast_request = service.build_context(db.get_session(session["id"]), "Bobby", 0)
+    assert fast_request.max_output_tokens == 4096
+    assert fast_request.stream_idle_timeout == 135
+
+    db.update_session(session["id"], conversation_profile="verification")
+    verification_session = db.get_session(session["id"])
+    verification_profile = service._profile_parameters(verification_session, "Bobby")
+    verification_request = service.build_context(verification_session, "Bobby", 0)
+    assert verification_request.max_output_tokens == 32768
+    assert verification_request.stream_idle_timeout == 337.5
+    assert service._live_output_token_budget(
+        "Bobby", verification_profile, multiplier=100
+    ) == 65536
 
 
 def test_legacy_research_multipliers_are_raised_to_deeper_minimums(monkeypatch) -> None:
@@ -443,6 +536,65 @@ class FakeRegistry:
 
     def get(self, participant: str):
         return self.items[participant]
+
+
+def test_conversation_digest_retains_background_inference_and_previous_digest(tmp_path: Path) -> None:
+    db = make_db(tmp_path)
+    session = db.create_session("Selection bias", "Preserve provenance", 2, False, False)
+    db.update_session(
+        session["id"],
+        conversation_digest={
+            "model_knowledge_claims": ["Earlier background: conditioning on a collider can induce association."],
+            "inferences": ["Earlier inference: the adjusted estimand may be biased."],
+        },
+    )
+    db.add_message(
+        session["id"],
+        "Momo",
+        "Background knowledge: Collider conditioning can open a noncausal path.\n\nInference: The adjusted association may move away from the causal effect.",
+    )
+    db.add_message(session["id"], "Bobby", "The direction of that bias still depends on the data-generating structure.")
+    provider = ProviderConfig(
+        participant="Momo", base_url="https://example.invalid/v1", model="fake",
+        api_style="responses", api_key_env="FAKE_KEY", reasoning_effort="low",
+    )
+    settings = Settings(
+        project_root=tmp_path, data_dir=tmp_path, uploads_dir=tmp_path / "uploads",
+        db_path=tmp_path / "test.sqlite3", host="127.0.0.1", port=8765,
+        digest_provider="momo", digest_interval=6, recent_round_count=5,
+        host_checkpoint_interval=3, live_max_output_tokens=350,
+        conversation_digest_max_output_tokens=2000, topic_digest_max_output_tokens=3000,
+        source_digest_max_output_tokens=4000, momo=provider, bobby=provider,
+    )
+    registry = FakeRegistry()
+    captured: list[GenerationRequest] = []
+
+    async def digest_generate(request: GenerationRequest):
+        captured.append(request)
+        return json.dumps({
+            "active_question": "How does selection alter the estimand?",
+            "positions": {"momo": "", "bobby": "", "sam": ""},
+            "agreements": [], "disagreements": [], "source_supported_claims": [],
+            "model_knowledge_claims": ["Collider conditioning can open a noncausal path."],
+            "inferences": ["The adjusted association may be biased."], "speculations": [],
+            "resolved_questions": [], "open_questions": [], "sam_directions": [],
+            "next_directions": [], "visible_recap": "Background knowledge and inference retained.",
+        })
+
+    registry.items["Momo"].generate = digest_generate
+    service = RoundtableService(settings, db, registry)
+    job = db.create_job(session["id"], "conversation_digest", {})
+
+    asyncio.run(service.run_conversation_digest(job["id"], session["id"], visible=True))
+
+    material = captured[0].messages[0]["content"]
+    assert "Previous Conversation Digest" in material
+    assert "Earlier background" in material
+    assert "Background knowledge: Collider conditioning" in material
+    assert "Inference: The adjusted association" in material
+    assert "Provenance retention requirement" in material
+    digest = db.get_session(session["id"])["conversation_digest"]
+    assert digest["model_knowledge_claims"] == ["Collider conditioning can open a noncausal path."]
 
 
 def test_two_round_segment_completes_without_human_checkpoint(tmp_path: Path) -> None:
@@ -960,7 +1112,7 @@ def test_live_context_is_bounded_and_marks_clipped_content(tmp_path: Path) -> No
     assert request.max_output_tokens == 1800
     assert bobby_request.max_output_tokens == 3150
     assert verification_request.max_output_tokens == 3600
-    assert bobby_verification_request.max_output_tokens == 6300
+    assert bobby_verification_request.max_output_tokens == 32768
     assert verification_request.reasoning_effort == "high"
     assert verification_request.model == "gpt-5.6-sol"
 

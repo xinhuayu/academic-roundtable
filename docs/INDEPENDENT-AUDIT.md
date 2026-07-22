@@ -24,6 +24,8 @@ The audit inspected the repository structure, API routes, persistence model, orc
 
 ### Live connection audit (2026-07-21)
 
+This section is a dated measurement record, not the current model configuration. The current Bobby defaults are Gemini 3.5 Flash-Lite for Fast, Gemini 3.6 Flash for Research, and Gemini 2.5 Pro for Verification; those routes require a fresh live benchmark after the server is restarted.
+
 I executed `scripts/live_audit_session.py` against the already-running application, with real OpenAI and Google provider calls, using the PDF file:
 `Cognitive Trajectories and Subsequent Health Status.pdf`.
 
@@ -61,6 +63,8 @@ The audit also confirmed dependency metadata and diagnostics were hardened:
 Performance disposition: live discussion latency and output sizes are appropriate for the current concise-turn design. Source digestion is acceptably asynchronous for a 27-passage academic PDF. Requested recap latency is within the configured 900-second background-job ceiling but should be monitored in further trials; it is not currently evidence of timeout, truncation, or retry failure.
 
 ### Live reasoning-profile switch simulation (2026-07-21)
+
+The table below preserves the exact routes used during that historical run. It should not be read as the current default profile catalog.
 
 I then used `scripts/simulate_reasoning_profiles.py` against the same running server and the same cognitive-trajectories PDF. The reusable script creates or reuses a source-digested session, changes `conversation_profile` through the public session API, sends a source-grounded methodological prompt, streams a fixed two-round segment, and records the actual model, reasoning effort, source-verification flag, first-delta latency, total elapsed time, output size, and provider errors. It intentionally leaves the session open for inspection.
 
@@ -193,13 +197,13 @@ Before pushing to GitHub, scan the working tree and repository history for secre
 
 ## Verification evidence
 
-- Backend: **83 tests passed** with `.venv\Scripts\python.exe -m pytest backend\tests -q`. Coverage includes ephemeral voice transcription, audio format/size/lifecycle guards, topic-guided provider requests, multi-round persistence of expanded long-Sam allowances, multilingual session persistence and prompt enforcement, English/Chinese control intents, synthesis-only comprehensive Summary Digest export, explicit supporting digest files in the complete archive, digest-only ordinary source context, explicit original-source verification routing, selective flagship profile routing, exact one-session retention, post-close immutability, summary-job cancellation, latest one-page selection, and recap deduplication.
+- Backend: **85 tests passed** with `.venv\Scripts\python.exe -m pytest backend\tests -q`. Coverage includes ephemeral voice transcription, audio format/size/lifecycle guards, topic-guided provider requests, multi-round persistence of expanded long-Sam allowances, multilingual session persistence and prompt enforcement, exact profile/model/reasoning metadata in SSE and stored turns, preservation of background knowledge/inference in Conversation Digest materials, English/Chinese control intents, synthesis-only comprehensive Summary Digest export, explicit supporting digest files in the complete archive, digest-only ordinary source context, explicit original-source verification routing, selective flagship profile routing, bounded Gemini hidden-thinking reserves and timeout margins, exact one-session retention, post-close immutability, summary-job cancellation, latest one-page selection, and recap deduplication.
 - Covered regression cases also include voice-expanded first-token/stream-idle/total-turn deadlines, first-token timeout recovery, immediate stalled-stream cancellation with partial-text retention, startup reconciliation, session-task cancellation, bounded context assembly, and preservation of `CLOSING` during interrupted stream cleanup.
-- Frontend: **5 Vitest tests passed**, followed by a successful TypeScript/Vite production build. Coverage includes translated provenance-label formatting in addition to the existing voice, upload, and ephemeral-status behavior. A local browser audit confirmed that Voice input, its privacy notice, the four composer controls, textarea, and Answer button fit within Sam's fixed panel without scrolling or console errors. The voice control displays elapsed time without a duration ceiling and waits for Sam to stop.
+- Frontend: **6 Vitest tests passed**, followed by a successful TypeScript/Vite production build. Coverage includes actual model/mode/reasoning disclosure per AI turn and translated provenance-label formatting in addition to the existing voice, upload, and ephemeral-status behavior. A local browser audit confirmed that Voice input, its privacy notice, the four composer controls, textarea, and Answer button fit within Sam's fixed panel without scrolling or console errors. The voice control displays elapsed time without a duration ceiling and waits for Sam to stop.
 - Independent API lifecycle smoke script (mocked providers) confirms session creation, Sam message routing, segment streaming, document digest jobs, recap triggering, closeout, learning-evaluation availability, and export paths in a clean temporary DB.
 - Live-provider smoke test remains intentionally separate because it depends on external model availability and API keys.
 
-The post-restart live health audit reported Momo (`gpt-5.6-luna`, OpenAI Responses) and Bobby (`gemini-3.1-flash-lite`, Google-compatible Chat Completions) configured and reachable. No paid generation was invoked during this audit, and the retained 11-round user session was not mutated.
+The 2026-07-21 post-restart live health audit reported Momo (`gpt-5.6-luna`, OpenAI Responses) and Bobby (`gemini-3.1-flash-lite`, Google-compatible Chat Completions) configured and reachable. That is retained as historical evidence only; the current Bobby defaults are the 3.5 Flash-Lite / 3.6 Flash / 2.5 Pro profile split. No paid generation was invoked during this audit, and the retained 11-round user session was not mutated.
 
 ## GitHub readiness checklist
 

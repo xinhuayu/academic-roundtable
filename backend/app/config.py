@@ -99,17 +99,26 @@ class Settings:
     # Research profiles are deliberately separate from the provider defaults so
     # a session can opt into deeper models without changing the fast baseline.
     research_momo_model: str = "gpt-5.6-sol"
-    research_bobby_model: str = "gemini-3.1-pro-preview"
+    research_bobby_model: str = "gemini-3.6-flash"
     research_momo_reasoning_effort: str = "medium"
     research_bobby_reasoning_effort: str = "medium"
     verification_momo_model: str = "gpt-5.6-sol"
-    verification_bobby_model: str = "gemini-3.1-pro-preview"
+    verification_bobby_model: str = "gemini-2.5-pro"
     verification_momo_reasoning_effort: str = "high"
     verification_bobby_reasoning_effort: str = "high"
     research_live_token_multiplier: float = 2.75
     research_live_timeout_multiplier: float = 2.5
     verification_live_token_multiplier: float = 2.0
     verification_live_timeout_multiplier: float = 2.5
+    # Gemini thinking tokens share the completion allowance but are not fully
+    # visible in the transcript. These floors reserve room for both reasoning
+    # and the concise answer while retaining the provider's 65,536-token cap.
+    gemini_fast_min_output_tokens: int = 4096
+    gemini_research_min_output_tokens: int = 12288
+    gemini_verification_min_output_tokens: int = 32768
+    gemini_max_output_tokens: int = 65536
+    gemini_research_timeout_multiplier: float = 1.35
+    gemini_verification_timeout_multiplier: float = 1.5
     voice_transcription_base_url: str = "https://api.openai.com/v1"
     voice_transcription_model: str = "gpt-4o-mini-transcribe"
     voice_transcription_api_key_env: str = "OPENAI_API_KEY"
@@ -122,17 +131,19 @@ class Settings:
 
 def provider_from_env(name: str, default_model: str) -> ProviderConfig:
     prefix = name.upper()
+    model = os.getenv(f"{prefix}_MODEL", default_model)
+    is_gemini = model.lower().startswith("gemini-")
     return ProviderConfig(
         participant=name.capitalize(),
         base_url=os.getenv(f"{prefix}_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
-        model=os.getenv(f"{prefix}_MODEL", default_model),
+        model=model,
         api_style=os.getenv(f"{prefix}_API_STYLE", "responses").lower(),
         api_key_env=os.getenv(f"{prefix}_API_KEY_ENV", "OPENAI_API_KEY"),
         reasoning_effort=os.getenv(f"{prefix}_REASONING_EFFORT", "low"),
-        connect_timeout=env_float(f"{prefix}_CONNECT_TIMEOUT_SECONDS", 10.0),
-        first_token_timeout=env_float(f"{prefix}_FIRST_TOKEN_TIMEOUT_SECONDS", 45.0),
-        stream_idle_timeout=env_float(f"{prefix}_STREAM_IDLE_TIMEOUT_SECONDS", 45.0),
-        total_timeout=env_float(f"{prefix}_TOTAL_TIMEOUT_SECONDS", 180.0),
+        connect_timeout=env_float(f"{prefix}_CONNECT_TIMEOUT_SECONDS", 15.0 if is_gemini else 10.0),
+        first_token_timeout=env_float(f"{prefix}_FIRST_TOKEN_TIMEOUT_SECONDS", 90.0 if is_gemini else 45.0),
+        stream_idle_timeout=env_float(f"{prefix}_STREAM_IDLE_TIMEOUT_SECONDS", 90.0 if is_gemini else 45.0),
+        total_timeout=env_float(f"{prefix}_TOTAL_TIMEOUT_SECONDS", 480.0 if is_gemini else 180.0),
     )
 
 
@@ -183,7 +194,7 @@ def get_settings() -> Settings:
             env_float("SOURCE_MULTI_DOC_TIMEOUT_MULTIPLIER", 2.0), 1.5, 3.0
         ),
         momo=provider_from_env("momo", "gpt-5.6-luna"),
-        bobby=provider_from_env("bobby", "gpt-5.6-terra"),
+        bobby=provider_from_env("bobby", "gemini-3.5-flash-lite"),
         digest_section_timeout=env_float("DIGEST_SECTION_TIMEOUT_SECONDS", 300.0),
         digest_job_timeout=env_float("DIGEST_JOB_TIMEOUT_SECONDS", 900.0),
         momo_live_max_output_tokens=max(
@@ -193,11 +204,11 @@ def get_settings() -> Settings:
             250, env_int("BOBBY_LIVE_MAX_OUTPUT_TOKENS", 1400)
         ),
         research_momo_model=os.getenv("RESEARCH_MOMO_MODEL", "gpt-5.6-sol"),
-        research_bobby_model=os.getenv("RESEARCH_BOBBY_MODEL", "gemini-3.1-pro-preview"),
+        research_bobby_model=os.getenv("RESEARCH_BOBBY_MODEL", "gemini-3.6-flash"),
         research_momo_reasoning_effort=os.getenv("RESEARCH_MOMO_REASONING_EFFORT", "medium"),
         research_bobby_reasoning_effort=os.getenv("RESEARCH_BOBBY_REASONING_EFFORT", "medium"),
         verification_momo_model=os.getenv("VERIFICATION_MOMO_MODEL", "gpt-5.6-sol"),
-        verification_bobby_model=os.getenv("VERIFICATION_BOBBY_MODEL", "gemini-3.1-pro-preview"),
+        verification_bobby_model=os.getenv("VERIFICATION_BOBBY_MODEL", "gemini-2.5-pro"),
         verification_momo_reasoning_effort=os.getenv("VERIFICATION_MOMO_REASONING_EFFORT", "high"),
         verification_bobby_reasoning_effort=os.getenv("VERIFICATION_BOBBY_REASONING_EFFORT", "high"),
         research_live_token_multiplier=_bound_multiplier(
@@ -211,6 +222,24 @@ def get_settings() -> Settings:
         ),
         verification_live_timeout_multiplier=_bound_multiplier(
             env_float("VERIFICATION_LIVE_TIMEOUT_MULTIPLIER", 2.5), 1.0, 5.0
+        ),
+        gemini_fast_min_output_tokens=max(
+            2048, env_int("GEMINI_FAST_MIN_OUTPUT_TOKENS", 4096)
+        ),
+        gemini_research_min_output_tokens=max(
+            9216, env_int("GEMINI_RESEARCH_MIN_OUTPUT_TOKENS", 12288)
+        ),
+        gemini_verification_min_output_tokens=max(
+            26624, env_int("GEMINI_VERIFICATION_MIN_OUTPUT_TOKENS", 32768)
+        ),
+        gemini_max_output_tokens=max(
+            32768, min(65536, env_int("GEMINI_MAX_OUTPUT_TOKENS", 65536))
+        ),
+        gemini_research_timeout_multiplier=_bound_multiplier(
+            env_float("GEMINI_RESEARCH_TIMEOUT_MULTIPLIER", 1.35), 1.0, 2.0
+        ),
+        gemini_verification_timeout_multiplier=_bound_multiplier(
+            env_float("GEMINI_VERIFICATION_TIMEOUT_MULTIPLIER", 1.5), 1.0, 2.5
         ),
         voice_transcription_base_url=os.getenv(
             "VOICE_TRANSCRIPTION_BASE_URL", "https://api.openai.com/v1"

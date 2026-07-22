@@ -117,6 +117,15 @@ export interface DocumentDependencies {
 }
 
 export interface AppMetadata {
+  conversation_profiles?: Array<{
+    id: ConversationProfile;
+    label: string;
+    description: string;
+    participants: Partial<Record<"Momo" | "Bobby", {
+      model: string;
+      reasoning_effort: string;
+    }>>;
+  }>;
   voice_input?: {
     configured: boolean;
     model: string;

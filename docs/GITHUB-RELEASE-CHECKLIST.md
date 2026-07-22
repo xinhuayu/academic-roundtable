@@ -15,7 +15,7 @@
 - [ ] Confirm `.env.local` is ignored and absent from `git status` and `git ls-files`.
 - [ ] Scan the full candidate commit and history for secrets.
 - [ ] Confirm `data/`, uploads, exports, logs, dependencies, caches, and build artifacts are untracked.
-- [ ] Run **83 backend tests**, the frontend test suite, and the frontend production build from the clean copy.
+- [ ] Run **85 backend tests**, the frontend test suite, and the frontend production build from the clean copy.
 - [ ] Review README limitations and security warnings.
 - [ ] Configure private vulnerability reporting before inviting outside users.
 
@@ -29,8 +29,8 @@
 
 ## Latest prepared-archive verification (2026-07-22)
 
-- [x] 83 backend tests passed.
-- [x] Frontend Vitest suite passed (5 tests, including translated provenance labels, ephemeral digest-status messages, landing-page multi-source staging, and Sam voice privacy/review states).
+- [x] 85 backend tests passed.
+- [x] Frontend Vitest suite passed (6 tests, including actual model-route labels, translated provenance labels, ephemeral digest-status messages, landing-page multi-source staging, and Sam voice privacy/review states).
 - [x] Frontend production build passed.
 - [x] Candidate source files passed checks for common OpenAI, Google, and Anthropic key formats, private-key blocks, and developer-specific absolute paths.
 - [x] Archive entry inspection found no `.env.local`, runtime database, uploaded source, transcript, log, cache, dependency directory, or compiled build output.
@@ -38,6 +38,8 @@
 - [x] Current frontend source includes the Sam-floor composer highlight, stage-specific blue closeout progress messages, and save/download-before-evaluation ordering.
 - [x] Current frontend source includes the highlighted header floor indicator and non-persistent topic/conversation digestion cards.
 - [x] Current source includes the Fast/Research/Verification session profile selector and profile-aware model, reasoning, token, and timeout routing.
+- [x] Current Bobby defaults are Gemini 3.5 Flash-Lite/low for Fast, Gemini 3.6 Flash/medium for Research, and Gemini 2.5 Pro/high for Verification; `.env.example` exposes all three model overrides.
+- [x] Gemini live requests have bounded hidden-thinking reserves, model-aware timeout margins, and regression coverage for Fast, Verification, and the 65,536-token cap.
 - [x] Rebuilt GitHub submission archive has 59 entries and contains no forbidden local/runtime files. Record the final SHA-256 from the packaging run before publication.
 - [x] Current frontend source includes explicit AI LLM mode buttons on the landing page and conversation header.
 
@@ -50,6 +52,7 @@
 - [x] Explicit recap-intent detection rejects topical “summary” language; the latest Sam voice/long-text contribution and its enlarged output/time budgets persist across every AI round in the segment.
 - [x] Persistent conversation-language state, conservative source-language initialization, Sam-authoritative overrides, and protected per-task output-language tags have backend and UI regression coverage.
 - [x] Research mode uses a 2.75× live token multiplier, 2.5× live timeout multiplier, and a focused 140–220-word depth target for both participants.
+- [x] The conversation header, participant cards, and stored AI messages disclose the effective profile/model/reasoning route; Conversation Digest input explicitly retains prior background-knowledge and inference material.
 
 This verifies the prepared local archive only. A GitHub history scan remains required after repository initialization and before publication.
 

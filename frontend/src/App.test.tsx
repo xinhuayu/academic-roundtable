@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { buildDigestStatusMessages, FormattedMessageContent, NewSessionForm, VoiceInputControl } from "./App";
+import { buildDigestStatusMessages, FormattedMessageContent, NewSessionForm, TranscriptMessage, VoiceInputControl } from "./App";
 
 
 describe("FormattedMessageContent", () => {
@@ -42,6 +42,26 @@ describe("buildDigestStatusMessages", () => {
       temporary: true,
       metadata: { kind: "ephemeral_digest_status", job_id: "topic-1" },
     });
+  });
+});
+
+describe("TranscriptMessage", () => {
+  it("shows the actual routed model, mode, and reasoning for an AI turn", () => {
+    const markup = renderToStaticMarkup(
+      <TranscriptMessage message={{
+        id: "m1",
+        speaker: "Momo",
+        content: "A research-mode contribution.",
+        status: "complete",
+        target: "roundtable",
+        metadata: { model: "gpt-5.6-sol", profile: "research", reasoning_effort: "medium" },
+        created_at: "2026-07-22T00:00:00Z",
+      }} />,
+    );
+
+    expect(markup).toContain("gpt-5.6-sol");
+    expect(markup).toContain("research");
+    expect(markup).toContain("medium reasoning");
   });
 });
 

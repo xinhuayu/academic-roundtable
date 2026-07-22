@@ -233,6 +233,32 @@ class RoundtableService:
             return self.settings.bobby_live_max_output_tokens
         return self.settings.live_max_output_tokens
 
+    @staticmethod
+    def _is_gemini_model(model: str) -> bool:
+        return model.lower().startswith("gemini-")
+
+    def _live_output_token_budget(
+        self,
+        speaker: str,
+        profile: dict[str, Any],
+        multiplier: float,
+    ) -> int:
+        """Return a completion allowance that includes hidden reasoning room.
+
+        The prompt still controls visible answer length. Gemini's OpenAI-
+        compatible ``max_tokens`` allowance also has to accommodate thinking
+        tokens, so medium/high routes need a larger floor than visible prose.
+        """
+        scaled = self._scaled_tokens(self._speaker_live_token_budget(speaker), multiplier)
+        if speaker != "Bobby" or not self._is_gemini_model(profile["model"]):
+            return scaled
+        floor = {
+            "fast": self.settings.gemini_fast_min_output_tokens,
+            "research": self.settings.gemini_research_min_output_tokens,
+            "verification": self.settings.gemini_verification_min_output_tokens,
+        }[profile["profile"]]
+        return min(self.settings.gemini_max_output_tokens, max(scaled, floor))
+
     def _profile_parameters(
         self,
         session: dict[str, Any],
@@ -294,6 +320,11 @@ class RoundtableService:
         # source-heavy jobs use high reasoning; live turns preserve the profile.
         if task != "live":
             reasoning = "high" if profile == "verification" else "medium"
+        if speaker == "Bobby" and self._is_gemini_model(model):
+            if profile == "research":
+                timeout_multiplier *= self.settings.gemini_research_timeout_multiplier
+            elif profile == "verification":
+                timeout_multiplier *= self.settings.gemini_verification_timeout_multiplier
         return {
             "profile": profile,
             "model": model,
@@ -306,22 +337,52 @@ class RoundtableService:
             "digest_token_multiplier": 1.0 if profile == "fast" else (1.5 if profile == "research" else 2.0),
         }
 
-    def profile_metadata(self) -> list[dict[str, str]]:
+    def profile_metadata(self) -> list[dict[str, Any]]:
         return [
             {
                 "id": "fast",
                 "label": "Fast discussion",
                 "description": "Current provider defaults with concise, low-latency turns.",
+                "participants": {
+                    "Momo": {
+                        "model": self.settings.momo.model,
+                        "reasoning_effort": self.settings.momo.reasoning_effort,
+                    },
+                    "Bobby": {
+                        "model": self.settings.bobby.model,
+                        "reasoning_effort": self.settings.bobby.reasoning_effort,
+                    },
+                },
             },
             {
                 "id": "research",
                 "label": "Research mode",
                 "description": "Flagship models with medium reasoning, deeper 140-220-word turns, and enlarged budgets.",
+                "participants": {
+                    "Momo": {
+                        "model": self.settings.research_momo_model,
+                        "reasoning_effort": self.settings.research_momo_reasoning_effort,
+                    },
+                    "Bobby": {
+                        "model": self.settings.research_bobby_model,
+                        "reasoning_effort": self.settings.research_bobby_reasoning_effort,
+                    },
+                },
             },
             {
                 "id": "verification",
                 "label": "Verification mode",
                 "description": "Flagship models with high reasoning and longer deadlines; raw source excerpts still require an explicit Sam request.",
+                "participants": {
+                    "Momo": {
+                        "model": self.settings.verification_momo_model,
+                        "reasoning_effort": self.settings.verification_momo_reasoning_effort,
+                    },
+                    "Bobby": {
+                        "model": self.settings.verification_bobby_model,
+                        "reasoning_effort": self.settings.verification_bobby_reasoning_effort,
+                    },
+                },
             },
         ]
 
@@ -630,8 +691,9 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                 {"role": "user", "content": context},
                 *([{"role": "user", "content": f"SOURCE CONTEXT:\n{source_context}"}] if source_context else []),
             ],
-            max_output_tokens=self._scaled_tokens(
-                self._speaker_live_token_budget(speaker),
+            max_output_tokens=self._live_output_token_budget(
+                speaker,
+                profile,
                 source_token_multiplier
                 * profile["token_multiplier"]
                 * (self.settings.long_sam_input_token_multiplier if long_sam_input else 1.0),
@@ -769,6 +831,12 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                         turn_profile = self._profile_parameters(
                             current, speaker, source_verification=source_verification, task="live"
                         )
+                        route_metadata = {
+                            "profile": turn_profile["profile"],
+                            "model": turn_profile["model"],
+                            "reasoning_effort": turn_profile["reasoning_effort"],
+                            "source_verification": source_verification,
+                        }
                         per_turn_timeout = self._turn_timeout_multiplier(
                             session_id,
                             turn_profile["timeout_multiplier"],
@@ -845,6 +913,7 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                                     partial,
                                     round_id=round_row["id"],
                                     status="interrupted",
+                                    metadata=route_metadata,
                                 )
                             yield {
                                 "type": "provider_error",
@@ -864,6 +933,7 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                                     partial,
                                     round_id=round_row["id"],
                                     status="interrupted",
+                                    metadata=route_metadata,
                                 )
                             cancel_event.set()
                             round_complete = False
@@ -878,6 +948,7 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                                     content,
                                     round_id=round_row["id"],
                                     status="interrupted",
+                                    metadata=route_metadata,
                                 )
                             round_complete = False
                             break
@@ -887,11 +958,11 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                             content or "[No visible response]",
                             round_id=round_row["id"],
                             metadata={
+                                **route_metadata,
                                 "academic_move": ACADEMIC_MOVES[
                                     (segment_round * 2 + turn_index) % len(ACADEMIC_MOVES)
                                 ],
                                 "independent_answer": bool(prepared_requests),
-                                "source_verification": source_verification,
                             },
                         )
                         yield {"type": "message_complete", "message": message}
@@ -1074,7 +1145,10 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
             )
             user_content = f"""Topic: {session['topic']}
 Current Topic Digest: {json.dumps(session.get('topic_digest') or {}, ensure_ascii=False)}
+Previous Conversation Digest: {json.dumps(session.get('conversation_digest') or {}, ensure_ascii=False)}
 Requested focus: {focus or 'the full conversation'}
+
+Provenance retention requirement: Treat all provenance-labeled passages in the transcript as digest material. Preserve useful Background knowledge/Background information, uploaded-source evidence, Inference, and Speculation in their corresponding structured fields and in the visible recap when they materially advance the discussion. Do not collapse model background knowledge into source-supported evidence.
 
 Transcript:
 {transcript}"""

@@ -123,15 +123,21 @@ export function buildDigestStatusMessages(jobs: Job[]): Message[] {
     }));
 }
 
-function Participant({ health }: { health: ProviderHealth }) {
+function Participant({ health, route }: { health: ProviderHealth; route?: ActiveModelRoute }) {
   const tone = health.reachable ? "ready" : health.configured ? "warning" : "danger";
   return (
-    <div className="participant" title={health.detail}>
+    <div className="participant" title={route ? `${profileMeta[route.profile].label}: ${route.model}, ${route.reasoning_effort} reasoning` : health.detail}>
       <span className={`status-dot status-${tone}`} />
-      <span><strong>{health.participant}</strong><small>{health.model}</small></span>
+      <span><strong>{health.participant}{route && <em>{profileMeta[route.profile].short}</em>}</strong><small>{route?.model || health.model}</small></span>
     </div>
   );
 }
+
+type ActiveModelRoute = {
+  profile: ConversationProfile;
+  model: string;
+  reasoning_effort: string;
+};
 
 function MentionText({ text }: { text: string }) {
   return <>{text.split(/(@?(?:Momo|Bobby|Sam))\b/gi).map((part, index) => {
@@ -195,15 +201,18 @@ export function FormattedMessageContent({ text, breakSamQuestions = false }: { t
   return <>{rendered}</>;
 }
 
-function TranscriptMessage({ message }: { message: Message }) {
+export function TranscriptMessage({ message }: { message: Message }) {
   const meta = speakerMeta[message.speaker] ?? speakerMeta.System;
   const ephemeralSystem = message.metadata.kind === "ephemeral_digest_status";
+  const model = typeof message.metadata.model === "string" ? message.metadata.model : "";
+  const profile = typeof message.metadata.profile === "string" ? message.metadata.profile : "";
+  const reasoning = typeof message.metadata.reasoning_effort === "string" ? message.metadata.reasoning_effort : "";
   return (
     <article className={`message message-${message.speaker.toLowerCase()} ${message.temporary ? "is-streaming" : ""} ${ephemeralSystem ? "is-ephemeral-system" : ""}`}>
       <div className="avatar" aria-hidden="true">{meta.monogram}</div>
       <div className="message-body">
         <header>
-          <div><strong>{message.speaker}</strong><span>{ephemeralSystem ? "background task" : meta.subtitle}</span></div>
+          <div><strong>{message.speaker}</strong><span>{ephemeralSystem ? "background task" : meta.subtitle}</span>{model && <span className="message-model-route">{model} · {profile || "fast"} · {reasoning || "default"} reasoning</span>}</div>
           {message.status !== "complete" && <Badge tone="warning">{message.status}</Badge>}
         </header>
         <div className="message-content">{message.content ? <FormattedMessageContent text={message.content} breakSamQuestions={message.speaker === "Momo" || message.speaker === "Bobby"} /> : <span className="thinking">thinking…</span>}</div>
@@ -375,6 +384,7 @@ function App() {
   const [health, setHealth] = useState<ProviderHealth[]>([]);
   const [documentDependencies, setDocumentDependencies] = useState<DocumentDependencies | null>(null);
   const [appMetadata, setAppMetadata] = useState<AppMetadata | null>(null);
+  const [activeModelRoutes, setActiveModelRoutes] = useState<Partial<Record<"Momo" | "Bobby", ActiveModelRoute>>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [composer, setComposer] = useState("");
@@ -432,6 +442,7 @@ function App() {
 
   useEffect(() => {
     if (!session) return;
+    setActiveModelRoutes({});
     setRecordDownloaded(false);
     setEvaluation(null);
     setConfirmNewSession(false);
@@ -551,8 +562,18 @@ function App() {
   const handleStreamEvent = (event: StreamEvent, streamState: { tempId?: string }) => {
     if (event.type === "round_start") setActiveRound(event.round_number ?? null);
     if (event.type === "message_start" && event.speaker) {
+      if ((event.speaker === "Momo" || event.speaker === "Bobby") && event.profile && event.model) {
+        setActiveModelRoutes((current) => ({
+          ...current,
+          [event.speaker as "Momo" | "Bobby"]: {
+            profile: event.profile as ConversationProfile,
+            model: event.model as string,
+            reasoning_effort: event.reasoning_effort || "default",
+          },
+        }));
+      }
       streamState.tempId = `stream-${Date.now()}-${event.speaker}`;
-      const temporary: Message = { id: streamState.tempId, speaker: event.speaker, content: "", status: "streaming", target: "roundtable", metadata: {}, created_at: new Date().toISOString(), temporary: true };
+      const temporary: Message = { id: streamState.tempId, speaker: event.speaker, content: "", status: "streaming", target: "roundtable", metadata: { profile: event.profile, model: event.model, reasoning_effort: event.reasoning_effort }, created_at: new Date().toISOString(), temporary: true };
       setSession((current) => current && ({ ...current, messages: [...current.messages, temporary] }));
     }
     if (event.type === "delta" && streamState.tempId && event.text) {
@@ -716,7 +737,11 @@ function App() {
     }
   };
   const toggleSetting = async (key: "sources_only" | "periodic_summary", value: boolean) => { if (session) setSession(await api.updateSession(session.id, { [key]: value })); };
-  const updateConversationProfile = async (value: ConversationProfile) => { if (session && !busy) setSession(await api.updateSession(session.id, { conversation_profile: value })); };
+  const updateConversationProfile = async (value: ConversationProfile) => {
+    if (!session || busy) return;
+    setActiveModelRoutes({});
+    setSession(await api.updateSession(session.id, { conversation_profile: value }));
+  };
   const upload = async (file: File) => {
     if (!session) return;
     const isPdf = file.name.toLowerCase().endsWith(".pdf");
@@ -804,6 +829,19 @@ function App() {
   const onePageSummary = [...(session?.summary_history ?? [])]
     .reverse()
     .find((digest) => digest.kind === "one_page" && typeof digest.digest?.content === "string")?.digest?.content;
+  const displayedProfile = activeModelRoutes.Momo?.profile || activeModelRoutes.Bobby?.profile || session?.conversation_profile || "fast";
+  const configuredProfile = appMetadata?.conversation_profiles?.find((profile) => profile.id === displayedProfile);
+  const displayedRoutes = (["Momo", "Bobby"] as const).reduce((routes, participant) => {
+    const live = activeModelRoutes[participant];
+    const configured = configuredProfile?.participants[participant];
+    const base = health.find((item) => item.participant === participant);
+    routes[participant] = live ?? {
+      profile: displayedProfile,
+      model: configured?.model || base?.model || "not configured",
+      reasoning_effort: configured?.reasoning_effort || "default",
+    };
+    return routes;
+  }, {} as Record<"Momo" | "Bobby", ActiveModelRoute>);
 
   return (
     <div className="app-shell">
@@ -813,7 +851,7 @@ function App() {
           <span><strong>Academic Roundtable</strong><small>deep conversations for better learning</small></span>
         </div>
         <div className="top-participants">
-          {health.map((item) => <Participant key={item.participant} health={item} />)}
+          {health.map((item) => <Participant key={item.participant} health={item} route={session && (item.participant === "Momo" || item.participant === "Bobby") ? displayedRoutes[item.participant] : undefined} />)}
           <div className="participant sam-participant"><span className="status-dot status-ready" /><span><strong>Sam</strong><small>academic host</small></span></div>
         </div>
         <div className="session-nav">
@@ -911,7 +949,7 @@ function App() {
           {activeJobs.length > 0 && <div className="job-strip">{activeJobs.slice(0, 2).map((job: Job) => <div key={job.id}><span className="spinner" /><strong>{job.kind.replaceAll("_", " ")}</strong><span>{job.detail}</span></div>)}</div>}
 
           <section className={`conversation-card ${busy ? "is-live" : ""}`} ref={conversationPanel}>
-            <div className="conversation-heading"><h2><span className="eyebrow">Conversation</span><span className="conversation-name conversation-name-momo">Momo</span><span className="conversation-separator">·</span><span className="conversation-name conversation-name-bobby">Bobby</span><span className="conversation-separator">·</span><span className="conversation-name conversation-name-sam">Sam</span></h2><div className={busy ? "live-indicator active" : concluded ? "live-indicator" : "live-indicator sam-floor"}>{busy ? `Round ${activeRound ?? "…"} live` : concluded ? "Session concluded" : "Sam has the floor"}</div></div>
+            <div className="conversation-heading"><h2><span className="eyebrow">Conversation</span><span className="conversation-name conversation-name-momo">Momo</span><span className="conversation-separator">·</span><span className="conversation-name conversation-name-bobby">Bobby</span><span className="conversation-separator">·</span><span className="conversation-name conversation-name-sam">Sam</span></h2><div className="conversation-model-route" title="The model route selected or actually reported by the live segment"><strong>{profileMeta[displayedProfile].label}</strong><span>Momo · {displayedRoutes.Momo.model} · {displayedRoutes.Momo.reasoning_effort}</span><span>Bobby · {displayedRoutes.Bobby.model} · {displayedRoutes.Bobby.reasoning_effort}</span></div><div className={busy ? "live-indicator active" : concluded ? "live-indicator" : "live-indicator sam-floor"}>{busy ? `Round ${activeRound ?? "…"} live` : concluded ? "Session concluded" : "Sam has the floor"}</div></div>
             <div className="conversation-layout">
               <div className="transcript" ref={transcriptViewport} aria-live="polite">
                 {conversationMessages.map((message) => <TranscriptMessage key={message.id} message={message} />)}

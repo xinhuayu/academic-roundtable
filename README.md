@@ -24,6 +24,7 @@ Ordinary multi-agent chats tend to become long parallel monologues. Academic Rou
 - Sam can choose Fast discussion, Research mode, or Verification mode. Research and Verification route live turns and background digests to configured flagship models with medium or high reasoning and larger, longer budgets; the Fast profile remains the low-latency default.
 - The conversation language is persistent session state. A clearly non-English source can set it automatically, while an explicit request from Sam (for example, “respond in Chinese” or “请用中文回答”) takes precedence for the rest of the session. Every live turn and every digest/summary request receives a protected output-language instruction.
 - The AI LLM mode is an explicit button group on both the landing page and conversation page. The conversation control applies to the next segment and is disabled while the AIs are streaming.
+- The conversation header and participant cards show the model and reasoning route selected for the segment. Every completed or interrupted AI contribution retains its actual `profile`, `model`, and `reasoning_effort` and displays them beside the speaker, so a Research/Verification turn cannot be mistaken for a Fast/Lite turn.
 - Full transcripts and digest history remain available as inputs to final synthesis and in the complete archive. The closeout Summary Digest contains only Momo's comprehensive synthesized learning record; it does not append the Topic Digest, processed-source digests, current Conversation Digest, or earlier digest history.
 - The closeout page shows a highlighted blue status notice while final and one-page summaries are generated. After processing, the save/download row appears first and **Evaluate learning** follows beneath it; saved rubric results are included in later downloads.
 
@@ -54,6 +55,7 @@ flowchart LR
 - Scheduled invitations to Sam and **Let them continue** when Sam defers
 - Natural-language and button-triggered recaps
 - Topic, conversation, periodic, requested, and final digests
+- Conversation Digests receive the prior digest plus the recent full transcript and explicitly retain useful labeled background knowledge, source evidence, inference, and speculation as distinct provenance categories
 - The five most recent complete rounds in every live model request
 - PDF, TXT, and Markdown upload, extraction, digestion, and FTS5 retrieval
 - PDF extraction uses PyMuPDF + pdfplumber for table-aware extraction and figure-object detection cues (pypdf fallback remains for compatibility)
@@ -130,15 +132,23 @@ MOMO_REASONING_EFFORT=low
 MOMO_LIVE_MAX_OUTPUT_TOKENS=800
 
 BOBBY_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
-BOBBY_MODEL=gemini-3.1-flash-lite
+BOBBY_MODEL=gemini-3.5-flash-lite
 BOBBY_API_STYLE=chat_completions
 BOBBY_API_KEY_ENV=GEMINI_API_KEY
 BOBBY_REASONING_EFFORT=low
 BOBBY_LIVE_MAX_OUTPUT_TOKENS=1400
-BOBBY_CONNECT_TIMEOUT_SECONDS=10
-BOBBY_FIRST_TOKEN_TIMEOUT_SECONDS=60
-BOBBY_STREAM_IDLE_TIMEOUT_SECONDS=60
-BOBBY_TOTAL_TIMEOUT_SECONDS=240
+BOBBY_CONNECT_TIMEOUT_SECONDS=15
+BOBBY_FIRST_TOKEN_TIMEOUT_SECONDS=90
+BOBBY_STREAM_IDLE_TIMEOUT_SECONDS=90
+BOBBY_TOTAL_TIMEOUT_SECONDS=480
+
+# Gemini completion ceilings include hidden thinking plus visible text.
+GEMINI_FAST_MIN_OUTPUT_TOKENS=4096
+GEMINI_RESEARCH_MIN_OUTPUT_TOKENS=12288
+GEMINI_VERIFICATION_MIN_OUTPUT_TOKENS=32768
+GEMINI_MAX_OUTPUT_TOKENS=65536
+GEMINI_RESEARCH_TIMEOUT_MULTIPLIER=1.35
+GEMINI_VERIFICATION_TIMEOUT_MULTIPLIER=1.5
 
 # Optional alternative for Bobby (disabled until selected)
 # BOBBY_BASE_URL=https://api.anthropic.com/v1
@@ -158,15 +168,21 @@ RESEARCH_LIVE_TIMEOUT_MULTIPLIER=2.5
 `MOMO_API_KEY_ENV` and `BOBBY_API_KEY_ENV` contain the **names** of environment variables, not the secrets themselves.
 Supported API styles are `responses`, `chat_completions`, and `anthropic_messages`.
 
-Reasoning is task-aware. Fast live turns use each participant's configured effort (`low` by default for speed); Research selects the configured flagship pair with medium reasoning; Verification selects the flagship pair with high reasoning and is also activated for an explicit request to check the original source. The UI keeps visible turns concise even when the model allowance grows. Source, topic, conversation, final-summary, and learning-evaluation requests use larger background budgets, with Research and Verification applying additional token and deadline multipliers. Responses and Chat Completions adapters forward model and reasoning overrides, and Anthropic Messages remains available for Bobby. Momo uses an 800-token base live allowance and Bobby uses 1,400 in Fast mode; profile multipliers expand only the selected session. A Chat Completions `finish_reason` of `length` is treated as an interrupted response rather than silent success, and the next AI does not continue from that fragment. Provider timeout variables govern live calls; background digest jobs use their separate section and job deadlines.
+Reasoning is task-aware. Fast live turns use each participant's configured effort (`low` by default for speed); Research selects the configured flagship pair with medium reasoning; Verification selects the flagship pair with high reasoning and is also activated for an explicit request to check the original source. The UI keeps visible turns concise even when the model allowance grows. Source, topic, conversation, final-summary, and learning-evaluation requests use larger background budgets, with Research and Verification applying additional token and deadline multipliers. Responses and Chat Completions adapters forward model and reasoning overrides, and Anthropic Messages remains available for Bobby. Momo uses an 800-token base live allowance. Bobby retains a 1,400-token visible-response basis, but Gemini requests receive minimum completion ceilings of 4,096 / 12,288 / 32,768 for Fast / Research / Verification, capped at 65,536. Those ceilings reserve space for provider-hidden thinking and do not instruct Bobby to produce longer prose. Gemini Research and Verification also receive additional 1.35× and 1.5× deadline multipliers over the selected profile. A Chat Completions `finish_reason` of `length` is treated as an interrupted response rather than silent success, and the next AI does not continue from that fragment. Provider timeout variables govern live calls; background digest jobs use their separate section and job deadlines.
+
+The provider health endpoint reports each provider's configured Fast/base model. The conversation UI combines that health information with the selected profile catalog and live SSE route metadata, so its active labels show the model that is selected or actually used for the current segment. Each AI message also preserves the actual route in its stored metadata.
 
 ### Conversation profiles
 
 The default `.env.example` includes separate model and reasoning settings for the profiles:
 
 - **Fast discussion:** current provider defaults, low reasoning, shortest latency.
-- **Research mode:** GPT-5.6 Sol for Momo and Gemini 3.1 Pro Preview for Bobby by default, medium reasoning, 2.75× live token allowances and 2.5× live deadlines. Each AI is asked for a focused 140–220-word contribution in two connected paragraphs, including the relevant inferential, methodological, statistical, mathematical, or theoretical detail.
-- **Verification mode:** the same flagship pair by default, high reasoning, approximately 2× live allowances and 2.5× live deadlines. Raw PDF/document excerpts are still withheld unless Sam explicitly asks to check the original source.
+- **Research mode:** GPT-5.6 Sol for Momo and Gemini 3.6 Flash for Bobby by default, medium reasoning, 2.75× live token allowances and 2.5× live deadlines. Bobby additionally receives the 12,288-token Gemini completion floor and 1.35× Gemini latency margin. Each AI is asked for a focused 140–220-word contribution in two connected paragraphs, including the relevant inferential, methodological, statistical, mathematical, or theoretical detail.
+- **Verification mode:** GPT-5.6 Sol for Momo and Gemini 2.5 Pro for Bobby by default, high reasoning, approximately 2× live allowances and 2.5× live deadlines. Bobby additionally receives the 32,768-token Gemini completion floor and 1.5× Gemini latency margin. Raw PDF/document excerpts are still withheld unless Sam explicitly asks to check the original source.
+
+The Bobby defaults deliberately separate workloads: Gemini 3.5 Flash-Lite favors interactive latency, Gemini 3.6 Flash provides the normal deep-research balance, and Gemini 2.5 Pro is reserved for slower source verification. Existing installations with explicit model variables keep those overrides; update or remove the three Bobby model variables to adopt this routing.
+
+Gemini thinking is not free or fully visible: thought tokens count toward billed output. The protected ceilings prevent premature truncation, while `reasoning_effort` remains the actual cost/latency control. Keep Fast on low, Research on medium, and use high Verification selectively.
 
 Use Research or Verification for derivations, statistical model comparisons, sensitivity analysis, disputed claims, or source checks. For numerical work, add a calculator/Python/R verification step; model reasoning does not replace deterministic computation.
 

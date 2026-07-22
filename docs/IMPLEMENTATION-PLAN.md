@@ -126,7 +126,7 @@ The prioritized rationale and postponed work are recorded in [CRITICAL-REVIEW.md
 
 ## Multi-provider reasoning and latency increment — complete
 
-- Momo and Bobby may use separate provider stacks; the environment template demonstrates OpenAI for Momo and Gemini 3.1 Flash-Lite for Bobby.
+- Momo and Bobby may use separate provider stacks; the environment template demonstrates OpenAI for Momo and Gemini 3.5 Flash-Lite for Bobby.
 - The Chat Completions adapter forwards `reasoning_effort`; Anthropic Messages is also available as an optional Bobby alternative.
 - Live turns remain low-reasoning and concise, while source/topic/conversation/final digests and learning evaluation use medium reasoning.
 - Per-provider connection, first-token, stream-idle, and total-turn limits are configurable without code changes.
@@ -134,18 +134,19 @@ The prioritized rationale and postponed work are recorded in [CRITICAL-REVIEW.md
 - Regression coverage protects reasoning propagation and timeout environment parsing.
 - Host-invitation detection requires a complete final question to Sam, preventing ordinary direct address from prematurely ending a segment.
 - Roles are deliberately asymmetric: Bobby develops the strongest defensible case; Momo audits both Bobby's and Sam's claims for assumptions, evidentiary support, scope, causal interpretation, and required qualification, then identifies a decisive test while avoiding reflexive disagreement. Momo also serves as the default OpenAI-backed digest provider.
-- Participant-specific live budgets allocate 800 base tokens to Momo and 1,400 to Bobby, with a 50% live-token multiplier applied by default during rounds.
+- Participant-specific live budgets allocate 800 base tokens to Momo and a 1,400-token visible-response basis to Bobby. Gemini routes apply bounded 4,096 / 12,288 / 32,768 completion floors for Fast / Research / Verification so hidden thinking and visible prose share sufficient room.
 - Chat Completions finish reasons are inspected; length-limited fragments are retained as interrupted and cannot silently hand the floor to the other AI.
 
 ## Selective flagship reasoning profiles — complete
 
 - Added a persisted per-session `conversation_profile`: `fast`, `research`, or `verification`.
 - Fast remains the default and preserves the current low-latency provider models and concise live turns.
-- Research routes Momo to GPT-5.6 Sol and Bobby to Gemini 3.1 Pro Preview by default, with medium reasoning, 2.75× live token allowances, 2.5× live deadlines, a focused 140–220-word target, and 1.5× background digest deadlines.
-- Verification uses the same flagship pair with high reasoning, 2× live token allowance, and 2.5× live deadlines; explicit requests to check the original source automatically use this profile for one segment.
+- Research routes Momo to GPT-5.6 Sol and Bobby to Gemini 3.6 Flash by default, with medium reasoning, 2.75× live token allowances, 2.5× live deadlines, a focused 140–220-word target, and 1.5× background digest deadlines. Gemini adds a 12,288-token completion floor and 1.35× deadline margin.
+- Verification routes Momo to GPT-5.6 Sol and Bobby to Gemini 2.5 Pro with high reasoning, 2× live token allowance, and 2.5× live deadlines; Gemini adds a 32,768-token completion floor and 1.5× deadline margin. Explicit requests to check the original source automatically use this profile for one segment.
 - Source excerpts remain excluded from ordinary rounds. Verification mode alone increases reasoning; raw excerpts are still added only when Sam explicitly requests the original source.
 - The landing page and session settings expose the profile selector, `/api/meta` publishes the profile catalog, and `.env.example` documents all override variables.
 - The landing page and conversation header expose explicit AI LLM mode buttons; the in-session choice applies to the next segment and is disabled during active streaming.
+- `/api/meta` publishes the exact Momo/Bobby model and reasoning route for each profile. The conversation header and provider cards show the selected route, live SSE replaces it with the effective route, and each stored AI contribution retains its actual profile/model/reasoning metadata.
 - Numerical/statistical claims remain candidates for a future deterministic calculator or Python/R tool; larger LLM budgets do not substitute for computation.
 
 ## Persistent multilingual conversation — complete
@@ -242,12 +243,14 @@ Potential scope:
 | Work type | Output budget | Execution |
 |---|---:|---|
 | Live Momo contribution | 800 base completion tokens; Fast targets 60–110 words; Research uses 2.75× token room and targets 140–220 words | critical response plus sufficient OpenAI reasoning room |
-| Live Bobby contribution | 1,400 base completion tokens; Fast targets 60–110 words; Research uses 2.75× token room and targets 140–220 words | case development plus provider hidden-reasoning room |
+| Live Bobby contribution | 1,400 visible-response basis; Gemini completion floors: 4,096 Fast, 12,288 Research, 32,768 Verification; 65,536 hard cap | concise case development plus provider-hidden thinking reserve |
 | Conversation digest/recap | at least 2,000; default 4,000 | background or requested foreground |
 | Topic digest | at least 3,000; default 6,000 | background |
 | Source section/synthesis | at least 4,000; default 8,000 | background |
 
 Live context keeps the participant protocol, Sam's direction, Topic Digest, latest Conversation Digest, five recent rounds, and processed document digest. Targeted raw evidence is added only for a one-segment original-source verification request from Sam. Complete digest history is reserved for final synthesis and export.
+
+Conversation-digest jobs receive the prior Conversation Digest plus the recent full transcript. Provenance-labeled background knowledge/information, source evidence, inference, and speculation are explicitly retained as input material and mapped to separate digest fields.
 
 Timeout defaults are provider-configurable: 10 seconds to connect, 45 seconds to first token, 45 seconds of stream-read idle time, and 180 seconds total per live turn. Digest operations have longer explicit task deadlines.
 
