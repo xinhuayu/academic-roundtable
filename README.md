@@ -316,6 +316,8 @@ The complete transcript and all prior digest versions remain in SQLite. They are
 
 Raw PDF/document passages are not included in ordinary rounds. If Sam explicitly asks to “check the original source,” “check the original PDF/document,” or otherwise verify a claim against the uploaded material, the next AI segment retrieves up to five relevant indexed passages and sends them as clearly labeled, untrusted original-source excerpts. That verification segment uses the enlarged source-processing token and timeout multipliers. A later Continue action returns to digest-only context unless Sam makes another verification request.
 
+Source-document, Topic, and Conversation Digest jobs use the Research profile by default, even when live turns are Fast. They inherit Verification only when the session profile is Verification. Closeout synthesis follows the Research or Verification mode selected by Sam.
+
 ## Session lifecycle and retention
 
 The application intentionally retains one session at a time. Both the interface and direct API creation require explicit reset whenever any prior session record exists, including a closed one:

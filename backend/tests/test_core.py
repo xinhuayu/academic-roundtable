@@ -740,6 +740,13 @@ def test_conversation_digest_retains_background_inference_and_previous_digest(tm
     asyncio.run(service.run_conversation_digest(job["id"], session["id"], visible=True))
 
     material = captured[0].messages[0]["content"]
+    assert captured[0].model == "gpt-5.6-luna"
+    assert captured[0].reasoning_effort == "xhigh"
+    verification_profile = service._profile_parameters(
+        {**session, "conversation_profile": "verification"}, "Momo", task="digest"
+    )
+    assert verification_profile["model"] == "gpt-5.6-sol"
+    assert verification_profile["reasoning_effort"] == "high"
     assert "Previous Conversation Digest" in material
     assert "Earlier background" in material
     assert "Background knowledge: Collider conditioning" in material

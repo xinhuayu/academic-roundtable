@@ -274,13 +274,23 @@ class RoundtableService:
     ) -> dict[str, Any]:
         """Resolve model, reasoning, and budget policy for one generation.
 
-        Fast is the stable default. Research selects the configured economical
-        deep-reasoning pair. Verification is automatically selected for an explicit request
-        to reopen the original source and raises reasoning and timeout budgets.
+        Fast is the stable default for live turns. Research selects the
+        configured economical deep-reasoning pair and is also the default for
+        background digestion. Verification is inherited by background work
+        only when the session is explicitly in Verification, or is
+        automatically selected for an explicit request to reopen the original
+        source and raise reasoning and timeout budgets.
         Raw source excerpts remain gated by ``source_verification`` itself.
         """
         provider = self.adapters.get(speaker).config
         requested = str(session.get("conversation_profile") or "fast").lower()
+        # Background digestion should be deep enough even when the live
+        # conversation is Fast. Verification is inherited only by a session
+        # explicitly running in Verification; otherwise digestion uses the
+        # economical Research profile. This applies to source, topic,
+        # conversation, and closeout synthesis tasks.
+        if task != "live":
+            requested = "verification" if requested == "verification" else "research"
         profile = "verification" if source_verification else requested
         if profile not in {"fast", "research", "verification"}:
             profile = "fast"

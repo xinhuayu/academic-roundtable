@@ -143,6 +143,7 @@ Each prompt section also has an explicit input ceiling. Oversized material is vi
 
 - A provisional Topic Digest is created from the session topic.
 - Uploaded sources trigger page-aware extraction, structural table extraction, figure-object detection cues, document synthesis, indexing, and Topic Digest refinement.
+- Source-document, Topic, and Conversation Digest jobs use the Research profile by default, even when live turns are Fast. They inherit Verification only when the session profile is Verification; closeout synthesis follows the mode selected by Sam.
 - Ordinary discussion carries the processed document digest, not raw PDF text or retrieved extracts.
 - Explicit original-source verification requests temporarily retrieve the most relevant indexed extracts and apply source-processing budgets and deadlines.
 - Without sources, the Topic Digest develops after several substantive exchanges.
