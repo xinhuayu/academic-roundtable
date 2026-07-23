@@ -10,10 +10,7 @@ Its guiding principle is **deep conversations for better learning**. The AIs deb
 
 ## See it in action
 
-<video controls width="100%" preload="metadata">
-  <source src="docs/academic-roundtable-demo-slideshow-voiceover.webm" type="video/webm">
-  <a href="docs/academic-roundtable-demo-slideshow-voiceover.webm">Watch the Academic Roundtable demonstration video</a>
-</video>
+<p><a href="docs/academic-roundtable-demo-slideshow-voiceover.mp4">Watch or download the Academic Roundtable demonstration video (MP4)</a></p>
 
 > Status: audited lean MVP for local learning pilots. It is not yet designed for public hosting or multiple users.
 
