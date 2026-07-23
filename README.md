@@ -20,7 +20,7 @@ Ordinary multi-agent chats tend to become long parallel monologues. Academic Rou
 - AI-only discussion is limited to two to five rounds at a time. Automatic mode uses two rounds by default, with an occasional three-round variation; Sam may select an exact fixed length.
 - Sam can interrupt at any moment without losing already streamed text.
 - Live turns use the Topic Digest, latest Conversation Digest, active question, and five recent rounds.
-- Uploaded sources can ground the discussion, while allowed model knowledge is labeled as background knowledge.
+- Uploaded sources can ground the discussion, while each AI contribution includes a concise, separately styled `Background knowledge:` line for internal model knowledge (or an explicit no-additional-knowledge statement).
 - Sam can choose Fast discussion, Research mode, or Verification mode. Research and Verification route live turns and background digests to configured flagship models with medium or high reasoning and larger, longer budgets; the Fast profile remains the low-latency default.
 - The conversation language is persistent session state. Source processing defaults to English and changes language only when the material is clearly non-English. An explicit request from Sam (for example, “respond in Chinese” or “请用中文回答”) takes precedence over the source language for every later live turn, Document/Topic/Conversation Digest, and closeout summary. Every model request receives a protected output-language instruction.
 - The AI LLM mode is an explicit button group on both the landing page and conversation page. The conversation control applies to the next segment and is disabled while the AIs are streaming.
@@ -65,7 +65,7 @@ flowchart LR
 - Highlighted Sam composer whenever Sam has the floor
 - Optional Sam voice input during the human floor, or **Interrupt and speak** during an AI segment; recordings continue until Sam stops them, are transcribed with topic-aware light spelling/punctuation correction, and return to the composer for review and editing before submission
 - Optional browser-local **Turn reminder** when an AI segment returns the floor to Sam. It speaks a short localized equivalent of “Sam, what do you think?”, prefers a feminine installed voice after Momo and a masculine installed voice after Bobby when available, and can be disabled persistently in Sam's panel without using an AI API
-- Highlighted top-right **Sam has the floor** indicator
+- Highlighted **Sam** label in the host composer when Sam has the floor
 - Provider health and background-job progress
 - Temporary local System cards for active Topic Digest and Conversation Digest work; these disappear on completion and are never stored or exported
 - Blue closeout progress messages that identify Momo and Bobby as concurrent summary authors and show both job details
@@ -193,7 +193,9 @@ Use Research or Verification for derivations, statistical model comparisons, sen
 
 The session stores a canonical conversation language and how it was selected. English is the source-processing default; a strongly detected non-English uploaded source may set another language when Sam has not chosen one. Sam can change it at any time with a direct instruction such as “continue in Spanish,” “output in Japanese,” or “请用中文回答”; this explicit choice cannot later be overwritten by another document and governs every later synthesis task even when the source itself is in another language.
 
-A constrained `<output_language>` instruction is appended to every participant, source-digest, Topic Digest, Conversation Digest, final-summary, and one-page-summary system prompt. Visible prose and summary values must use the selected language, while JSON field names, formulas, proper nouns, and exact quotations remain stable. An actual mid-session language change queues one deduplicated Topic Digest refresh so the visible topic framing follows Sam's choice; later Conversation and closeout digests inherit the same language. The active language is shown in the conversation header and recorded in readable exports. Automatic detection is deliberately conservative and may require Sam's explicit instruction for mixed-language, closely related Latin-language, or poor-OCR documents.
+A constrained `<output_language>` instruction is placed first in every participant, source-digest, Topic Digest, Conversation Digest, final-summary, and one-page-summary system prompt, and each live-turn user context repeats the current language requirement. Visible prose and summary values must use the selected language, while JSON field names, formulas, proper nouns, and exact quotations remain stable. An actual mid-session language change queues one deduplicated Topic Digest refresh so the visible topic framing follows Sam's choice; later Conversation and closeout digests inherit the same language. Automatic detection is deliberately conservative and may require Sam's explicit instruction for mixed-language, closely related Latin-language, or poor-OCR documents.
+
+Natural language controls include “let's talk in English,” “let's discuss in German,” “change the conversation language to French,” “switch to Japanese for the rest,” and “continue in Spanish.” Ordinary topical mentions such as “the Chinese cohort” are not treated as a language switch.
 
 Check connectivity without displaying credentials:
 

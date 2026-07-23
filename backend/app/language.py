@@ -51,8 +51,8 @@ def detect_explicit_language_request(content: str) -> str | None:
     for language, aliases in LANGUAGE_ALIASES.items():
         alias = _alias_pattern(aliases)
         patterns = (
-            rf"\b(?:please\s+)?(?:use|speak|respond|answer|write|continue|output)\s+(?:in\s+|using\s+)?{alias}(?:\s+language)?\b",
-            rf"\b(?:switch|change)\s+(?:the\s+)?(?:conversation|discussion|roundtable|output)?\s*(?:to|into)\s+{alias}(?:\s+language)?\b",
+            rf"\b(?:please\s+)?(?:use|speak|talk|discuss|respond|answer|write|continue|output)\s+(?:in\s+|using\s+)?{alias}(?:\s+language)?\b",
+            rf"\b(?:switch|change)\s+(?:the\s+)?(?:conversation|discussion|roundtable|output)?(?:\s+language)?\s*(?:to|into)\s+{alias}(?:\s+language)?\b",
             rf"\b(?:conversation|discussion|roundtable|responses?|answers?|output)\s+(?:should\s+be\s+|must\s+be\s+|in\s+|using\s+){alias}(?:\s+language)?\b",
             rf"\b(?:conduct|hold)\s+(?:the\s+)?(?:conversation|discussion|roundtable)\s+in\s+{alias}(?:\s+language)?\b",
             rf"\b{alias}(?:\s+language)?\s+(?:conversation|discussion|roundtable|responses?|answers?|output)\b",

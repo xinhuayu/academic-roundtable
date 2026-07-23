@@ -250,7 +250,7 @@ function HighlightMentions({ text, breakSamQuestions = false }: { text: string; 
 }
 
 export function FormattedMessageContent({ text, breakSamQuestions = false }: { text: string; breakSamQuestions?: boolean }) {
-  const provenanceLabels = "Background knowledge|Background information|Inference|Speculation|背景知识|背景知識|背景信息|背景資訊|推论|推論|推断|推斷|推测|推測|Inferencia|Especulación|Connaissances générales|Inférence|Spéculation|Hintergrundwissen|Schlussfolgerung|Spekulation|Conhecimento de fundo|Inferência|Especulação";
+  const provenanceLabels = "Background knowledge|Background information|Background|Inference|Speculation|背景知识|背景知識|背景信息|背景資訊|推论|推論|推断|推斷|推测|推測|Inferencia|Especulación|Connaissances générales|Inférence|Spéculation|Hintergrundwissen|Schlussfolgerung|Spekulation|Conhecimento de fundo|Inferência|Especulação";
   const parts = text.split(new RegExp(`(\\*{0,2}(?:${provenanceLabels})[:：]\\*{0,2})`, "gi"));
   const rendered: React.ReactNode[] = [];
   for (let index = 0; index < parts.length; index += 1) {
@@ -353,6 +353,7 @@ export function NewSessionForm({
     }}>
       <label>Roundtable topic<textarea value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="e.g., When can an observational estimate support a causal interpretation?" rows={3} /></label>
       <label>Sam’s learning goal<textarea value={goal} onChange={(event) => setGoal(event.target.value)} rows={2} /></label>
+      <button className="button button-secondary landing-start-button" disabled={!canSubmit}>Start roundtable</button>
       <div className="profile-field"><span>AI LLM mode</span><ProfileChoice value={profile} onChange={setProfile} /><small>Choose Fast for quick exploration, Research for deeper 140–220-word mathematical or methodological turns, or Verification for high-depth checking.</small></div>
       <section className="landing-source-panel" aria-labelledby="landing-source-title">
         <div>
@@ -369,7 +370,6 @@ export function NewSessionForm({
       </section>
       <p className="form-hint">Research and verification modes allow more model work and may take longer. Ordinary live turns reopen source excerpts only when Sam explicitly asks; closeout uses bounded extracted text rather than the original files.</p>
       <p className="retention-warning">This app keeps one local roundtable at a time.</p>
-      <button className="button button-primary" disabled={!canSubmit}>Start roundtable</button>
     </form>
   );
 }
@@ -1061,6 +1061,7 @@ function App() {
           <div className="participant sam-participant"><span className="status-dot status-ready" /><span><strong>Sam</strong><small>academic host</small></span></div>
         </div>
         <div className="session-nav">
+          {session && !concluded && <div className="topic-mode-control header-mode-control"><span>AI LLM mode</span><ProfileChoice value={session.conversation_profile} onChange={updateConversationProfile} disabled={busy} compact /></div>}
           {session && !concluded
             ? <button className="button button-stop" onClick={endSession} disabled={voiceState !== "idle"}>End</button>
             : <span className="session-status">{session ? "Session closeout" : "New roundtable"}</span>}
@@ -1171,14 +1172,13 @@ function App() {
         <main className="workspace">
           <section className="topic-bar">
             <div><div className="eyebrow">Active inquiry</div><h1>{session.topic}</h1><p>{session.learning_goal}</p></div>
-            <div className="topic-actions"><div className="topic-mode-control"><span>AI LLM mode · next segment</span><ProfileChoice value={session.conversation_profile} onChange={updateConversationProfile} disabled={busy} compact /></div><span className="language-indicator"><strong>{session.conversation_language || "English"}</strong> conversation</span><span><strong>{session.completed_rounds}</strong> rounds</span></div>
+            <div className="topic-actions"><span><strong>{session.completed_rounds}</strong> rounds</span></div>
           </section>
 
           {error && <div className="error-banner"><span>{error}</span><button onClick={() => setError("")}>Dismiss</button></div>}
           {activeJobs.length > 0 && <div className="job-strip">{activeJobs.slice(0, 2).map((job: Job) => <div key={job.id}><span className="spinner" /><strong>{job.kind.replaceAll("_", " ")}</strong><span>{job.detail}</span></div>)}</div>}
 
           <section className={`conversation-card ${busy ? "is-live" : ""}`} ref={conversationPanel}>
-            <div className="conversation-heading"><h2><span className="eyebrow">Conversation</span><span className="conversation-name conversation-name-momo">Momo</span><span className="conversation-separator">·</span><span className="conversation-name conversation-name-bobby">Bobby</span><span className="conversation-separator">·</span><span className="conversation-name conversation-name-sam">Sam</span></h2><div className="conversation-model-route" title="The model route selected or actually reported by the live segment"><strong>{profileMeta[displayedProfile].label}</strong><span>Momo · {displayedRoutes.Momo.model} · {displayedRoutes.Momo.reasoning_effort}</span><span>Bobby · {displayedRoutes.Bobby.model} · {displayedRoutes.Bobby.reasoning_effort}</span></div><div className={busy ? "live-indicator active" : concluded ? "live-indicator" : "live-indicator sam-floor"}>{busy ? `Round ${activeRound ?? "…"} live` : concluded ? "Session concluded" : "Sam has the floor"}</div></div>
             <div className="conversation-layout">
               <div className="transcript" ref={transcriptViewport} aria-live="polite">
                 {conversationMessages.map((message) => <TranscriptMessage key={message.id} message={message} />)}
@@ -1186,7 +1186,7 @@ function App() {
               </div>
 
               <aside className="host-panel" aria-label="Sam's host controls">
-                <div className="host-panel-heading"><div className="avatar">S</div><strong>Sam</strong><span className="host-label-separator" aria-hidden="true">·</span><small>Guide the roundtable</small><VoiceReminderControl enabled={voiceReminderEnabled} supported={voiceReminderSupported} onChange={setVoiceReminderEnabled} /></div>
+                <div className="host-panel-heading"><div className="avatar">S</div><strong className={!busy && !concluded ? "sam-floor-name" : ""}>Sam</strong><span className="host-label-separator" aria-hidden="true">·</span><small>Guide the roundtable</small><VoiceReminderControl enabled={voiceReminderEnabled} supported={voiceReminderSupported} onChange={setVoiceReminderEnabled} /></div>
                 <form onSubmit={sendMessage} className={`composer ${(!busy && !concluded) || voiceState !== "idle" ? "sam-has-floor" : ""} ${voiceState !== "idle" ? `voice-${voiceState}` : ""}`}>
                   <div className="composer-topline"><label>Address <select value={target} onChange={(event) => setTarget(event.target.value)}><option value="roundtable">Automatic</option><option value="Momo">Momo</option><option value="Bobby">Bobby</option><option value="both">Both independently</option></select></label><span>Names and @mentions override</span></div>
                   <VoiceInputControl

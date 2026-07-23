@@ -15,7 +15,7 @@
 - [ ] Confirm `.env.local` is ignored and absent from `git status` and `git ls-files`.
 - [ ] Scan the full candidate commit and history for secrets.
 - [ ] Confirm `data/`, uploads, exports, logs, dependencies, caches, and build artifacts are untracked.
-- [ ] Run **94 backend tests**, the frontend test suite, and the frontend production build from the clean copy.
+- [ ] Run **98 backend tests**, the frontend test suite, and the frontend production build from the clean copy.
 - [ ] Review README limitations and security warnings.
 - [ ] Configure private vulnerability reporting before inviting outside users.
 
@@ -29,14 +29,15 @@
 
 ## Latest prepared-archive verification (2026-07-22)
 
-- [x] 94 backend tests passed.
-- [x] Frontend Vitest suite passed (11 tests, including actual model-route labels, translated provenance labels, ephemeral digest and timeout-retry messages, Research/Verification Momo/Bobby closeout status, landing-page multi-source staging, Sam voice privacy/review states, and the localized last-speaker Turn reminder control).
+- [x] 98 backend tests passed.
+- [x] Frontend Vitest suite passed (13 tests, including actual model-route labels, translated and separate background-knowledge provenance labels, ephemeral digest and timeout-retry messages, Research/Verification Momo/Bobby closeout status, landing-page ordering and accent styling, landing-page multi-source staging, Sam voice privacy/review states, and the localized last-speaker Turn reminder control).
 - [x] Frontend production build passed.
 - [x] Candidate source files passed checks for common OpenAI, Google, and Anthropic key formats, private-key blocks, and developer-specific absolute paths.
 - [x] Archive entry inspection found no `.env.local`, runtime database, uploaded source, transcript, log, cache, dependency directory, or compiled build output.
 - [x] `.env.example`, README, logo, backend source, frontend source, tests, skills, and documentation are present.
 - [x] Current frontend source includes the Sam-floor composer highlight, stage-specific blue closeout progress messages, and save/download-before-evaluation ordering.
-- [x] Current frontend source includes the highlighted header floor indicator and non-persistent topic/conversation digestion cards.
+- [x] Current frontend source includes the highlighted Sam composer label, the compact transcript without a redundant participant/mode/floor header row, and non-persistent topic/conversation digestion cards.
+- [x] Language-control regression coverage includes natural “talk in,” “discuss in,” and “change the conversation language to” requests without treating topical language mentions as switches.
 - [x] Sam's panel includes a persistent browser-local Turn reminder toggle; the reminder speaks once per AI-to-Sam handoff and prefers different installed voices after Momo and Bobby without consuming API tokens.
 - [x] Current source includes the Fast/Research/Verification session profile selector and profile-aware model, reasoning, token, and timeout routing.
 - [x] Current Bobby defaults are Gemini 3.5 Flash-Lite/minimal for Fast, Gemini 3.6 Flash/medium for Research, and `gemini-pro-latest`/high for Verification; `.env.example` exposes all three model overrides.

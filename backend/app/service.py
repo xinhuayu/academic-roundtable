@@ -413,8 +413,9 @@ class RoundtableService:
 
     @staticmethod
     def _system_prompt(session: dict[str, Any], *parts: str) -> str:
+        language_instruction = output_language_instruction(session)
         return "\n\n".join(
-            [part for part in parts if part] + [output_language_instruction(session)]
+            [language_instruction] + [part for part in parts if part]
         )
 
     def set_conversation_language(
@@ -683,7 +684,12 @@ class RoundtableService:
             if source_verification
             else ""
         )
-        context = f"""TOPIC DIGEST
+        conversation_language = str(session.get("conversation_language") or "English")
+        context = f"""CURRENT OUTPUT LANGUAGE
+{conversation_language}
+Every visible response in this turn must be written in {conversation_language}. Do not switch back to the source or previous conversation language.
+
+TOPIC DIGEST
 {topic_digest}
 
 CONVERSATION DIGEST
@@ -1236,8 +1242,13 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
         )
         return job
 
-    def request_topic_digest(self, session_id: str, reason: str = "requested") -> dict[str, Any]:
-        """Queue one deduplicated Topic Digest refresh for the current session state."""
+    def request_topic_digest(
+        self,
+        session_id: str,
+        reason: str = "requested",
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        """Queue one Topic Digest refresh and prevent stale-language results from winning."""
         active = next(
             (
                 job for job in self.db.list_jobs(session_id)
@@ -1245,8 +1256,15 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
             ),
             None,
         )
-        if active:
+        if active and not force_refresh:
             return active
+        if active and force_refresh:
+            self.db.update_job(
+                active["id"],
+                status="cancelled",
+                progress=1.0,
+                detail="Superseded by a conversation-language change",
+            )
         session = self.db.get_session(session_id)
         if not session:
             raise ValueError("Session not found")
@@ -1257,6 +1275,7 @@ Continue the roundtable as {speaker}. Address the latest relevant contribution a
                 "through_round": session["completed_rounds"],
                 "reason": reason,
                 "conversation_language": session.get("conversation_language") or "English",
+                "force_refresh": force_refresh,
             },
         )
         self._spawn(self.run_topic_digest(job["id"], session_id), session_id)
@@ -1725,6 +1744,9 @@ Transcript:
         self.db.update_job(job_id, status="running", progress=0.1, detail="Collecting topic context")
         try:
             session = self.db.get_session(session_id)
+            if not session:
+                return
+            requested_language = str(session.get("conversation_language") or "English")
             messages = self.db.list_messages(session_id)
             messages = [
                 item for item in messages
@@ -1773,6 +1795,16 @@ Source summaries:
                 self._scaled_timeout(self.settings.digest_job_timeout, topic_profile["digest_timeout_multiplier"])
             ):
                 raw = await topic_adapter.generate(request)
+            current_session = self.db.get_session(session_id)
+            current_language = str((current_session or {}).get("conversation_language") or "English")
+            if current_language != requested_language:
+                self.db.update_job(
+                    job_id,
+                    status="cancelled",
+                    progress=1.0,
+                    detail="Discarded stale Topic Digest after a language change",
+                )
+                return
             digest = parse_json_object(raw)
             if not digest:
                 raise ValueError("Topic digest was not valid JSON")

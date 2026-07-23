@@ -63,7 +63,7 @@ The project uses short, testable increments. It does not add multi-user or cloud
 - Digest-only source context during ordinary rounds; no raw passages are repeatedly sent
 - Explicit Sam requests to check the original source/PDF/document activate one-segment passage retrieval with source-sized token and timeout limits
 - Sources-only evidence policy
-- Clearly labeled model background knowledge when permitted
+- A concise `Background knowledge:` line in every AI contribution, kept separate from uploaded-source evidence and `Inference:`
 - Public API redaction of internal managed-file paths
 
 ### 5. Conversation-first interface and closeout — complete
@@ -71,7 +71,7 @@ The project uses short, testable increments. It does not add multi-user or cloud
 - Rolling transcript as the dominant view
 - Narrow, persistent Sam composer and always-reachable interrupt control
 - Active-floor highlight around Sam's composer whenever the AIs are waiting for the host
-- Matching highlight on the top-right **Sam has the floor** indicator
+- Highlighted **Sam** label in the host composer when the human floor is active; the redundant conversation-card header row is omitted
 - Optional local Turn reminder at the AI-to-Sam floor transition, with last-speaker feminine/masculine system-voice preference, multilingual reminder text, immediate cancellation during further interaction, and a persistent on/off toggle in Sam's panel
 - Local-only System digestion notices in the transcript, derived from queued/running topic or conversation digest jobs and removed automatically without persistence
 - Participant-name highlighting and distinct background-knowledge styling
@@ -159,8 +159,9 @@ The prioritized rationale and postponed work are recorded in [CRITICAL-REVIEW.md
 
 - Added `conversation_language` and `language_source` to session state with additive migration support.
 - Source processing defaults to English. A conservative detector initializes another language only from clear non-English evidence; Sam's explicit conversation-language instruction has permanent precedence over source language and later uploads.
-- A constrained output-language tag is appended to every Momo/Bobby live turn and every source, Topic, Conversation, final, and one-page synthesis task; an actual mid-session language switch queues one deduplicated Topic Digest refresh.
-- Localized greetings and closeout text are available for common languages; the UI header and readable exports disclose the active language.
+- Explicit language controls accept natural phrasing such as “let's talk in English,” “let's discuss in German,” “change the conversation language to French,” “switch to Japanese for the rest,” and “continue in Spanish,” while ordinary topical mentions are ignored.
+- A constrained output-language tag is appended to every Momo/Bobby live turn and every source, Topic, Conversation, final, and one-page synthesis task; an actual mid-session language switch force-refreshes one deduplicated Topic Digest job and rejects stale-language results.
+- Localized greetings and closeout text are available for common languages; the selected language is persisted in session state and disclosed in readable exports while both live participants receive an explicit per-turn language directive.
 - JSON keys, formulas, proper nouns, and exact quotations remain stable while visible prose and JSON string values use the selected language.
 - English and Chinese recap, closeout, source-verification, and host-question control forms have deterministic coverage. Additional intent-language variants remain a fixture-driven extension.
 

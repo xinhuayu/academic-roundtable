@@ -487,8 +487,11 @@ def test_legacy_research_multipliers_are_raised_to_deeper_minimums(monkeypatch) 
     [
         ("Please conduct this conversation in Chinese.", "Chinese"),
         ("Okay, respond in Spanish from now on.", "Spanish"),
+        ("Let's talk in English.", "English"),
+        ("Let's discuss in German for the rest of this session.", "German"),
         ("请用中文回答，并保持学术讨论。", "Chinese"),
         ("Switch the discussion to Japanese.", "Japanese"),
+        ("Change the conversation language to French.", "French"),
         ("French language conversation, please.", "French"),
     ],
 )
@@ -531,6 +534,34 @@ def test_source_language_detection_defaults_ambiguous_latin_academic_text_to_eng
     ) * 30
 
     assert detect_document_language(ambiguous_english) == "English"
+
+
+def test_language_switch_applies_new_tag_to_both_live_participants(tmp_path: Path) -> None:
+    db = make_db(tmp_path)
+    session = db.create_session("Language switch", "Keep both participants aligned", 2, False, False)
+    provider = ProviderConfig(
+        participant="Momo", base_url="https://example.invalid/v1", model="fake",
+        api_style="responses", api_key_env="FAKE_KEY", reasoning_effort="low",
+    )
+    settings = Settings(
+        project_root=tmp_path, data_dir=tmp_path, uploads_dir=tmp_path / "uploads",
+        db_path=tmp_path / "test.sqlite3", host="127.0.0.1", port=8765,
+        digest_provider="momo", digest_interval=6, recent_round_count=5,
+        host_checkpoint_interval=3, live_max_output_tokens=350,
+        conversation_digest_max_output_tokens=2000, topic_digest_max_output_tokens=3000,
+        source_digest_max_output_tokens=4000, momo=provider, bobby=provider,
+    )
+    service = RoundtableService(settings, db, FakeRegistry())
+    service.set_conversation_language(session["id"], "Chinese", "sam")
+    current = db.get_session(session["id"])
+
+    momo_request = service.build_context(current, "Momo", 0)
+    bobby_request = service.build_context(current, "Bobby", 1)
+
+    for request in (momo_request, bobby_request):
+        assert request.system.startswith('<output_language name="Chinese">')
+        assert "CURRENT OUTPUT LANGUAGE\nChinese" in request.messages[0]["content"]
+        assert "Do not switch back to the source or previous conversation language." in request.messages[0]["content"]
 
 
 def test_source_language_persists_and_sam_can_override_it(tmp_path: Path) -> None:
@@ -595,6 +626,7 @@ def test_output_language_instruction_keeps_json_schema_keys() -> None:
 def test_academic_roles_require_depth_and_distinct_critical_angles() -> None:
     assert "Answer Sam's actual question" in ACADEMIC_CONVERSATION_SKILL
     assert "one level deeper" in ACADEMIC_CONVERSATION_SKILL
+    assert "Include a short, standalone `Background knowledge:` line in every contribution" in ACADEMIC_CONVERSATION_SKILL
     assert "Stress-test Bobby's and Sam's substantive claims" in PERSONAS["Momo"]
     momo_skill = RoundtableService._load_momo_skill()
     assert "especially when responding to Bobby or Sam" in momo_skill

@@ -507,6 +507,7 @@ async def add_sam_message(session_id: str, payload: SamMessage) -> dict[str, Any
         action["topic_digest_job"] = service.request_topic_digest(
             session_id,
             "conversation_language_changed",
+            force_refresh=True,
         )
     if closing_requested:
         await service.cancel_session_background_tasks(session_id)

@@ -57,12 +57,12 @@ During a session:
 - An AI can ask Sam one focused question at a scheduled checkpoint; Sam can answer, redirect, or click **Let them continue**.
 - Interrupt stops the active segment without hiding already streamed partial text. Sam may then speak or continue for more rounds.
 - Recaps can be requested in natural language or from the interface and appear below the transcript.
-- A non-English source can initialize the conversation language. Sam can explicitly change it at any time; the selected language appears in the conversation header and governs both AIs, digests, summaries, localized greetings, and closeout text.
+- A non-English source can initialize the conversation language. Sam can explicitly change it at any time; the selected language is persisted server-side and governs both AIs, digests, summaries, localized greetings, and closeout text. Each live request receives the language tag both first in the system prompt and in the turn context.
 - The conversation header keeps a visible **AI LLM mode** button group for Fast, Research, and Verification. Sam can change it between segments for a specific discussion point; it is disabled during streaming and applies to the next segment.
 - The header route strip and participant cards resolve the selected profile to the configured Momo/Bobby models. Live `message_start` metadata replaces the planned route with the exact profile/model/reasoning reported for the segment, and every stored AI message retains those fields for per-turn display and audit.
 - The header **End** action or closing language interrupts generation, creates one brief AI farewell, and opens the download handoff. A highlighted blue live-status panel shows Momo generating the comprehensive Summary Digest and Bobby generating the one-page learning summary concurrently in deep Verification mode, including both active job details. Both jobs can be cancelled together without losing transcript or existing digest downloads. After completion, the save/download row appears before the optional **Evaluate learning** control.
 
-The transcript uses a fixed-height rolling viewport. New streamed content scrolls inside that viewport rather than moving the whole page, keeping Sam's composer accessible. When an AI segment returns the floor, a post-layout scroll correction places the latest completed contribution at the bottom of the transcript before focusing Sam's composer. When Sam has the floor, both the composer and the top-right floor indicator are highlighted. An optional browser-local **Turn reminder** speaks one short localized prompt at that transition. It heuristically prefers a feminine installed voice when Momo spoke last and a masculine installed voice when Bobby spoke last, with pitch and default-voice fallbacks because browser voice metadata does not expose standardized gender. Sam can disable the reminder in the host panel; the preference persists in local storage, and no provider call is made. Sam can select **Voice input** while holding the floor or **Interrupt and speak** during AI generation. Recording, transcription, editable-draft, and submission states remain visually distinct.
+The transcript uses a fixed-height rolling viewport. New streamed content scrolls inside that viewport rather than moving the whole page, keeping Sam's composer accessible. When an AI segment returns the floor, a post-layout scroll correction places the latest completed contribution at the bottom of the transcript before focusing Sam's composer. When Sam has the floor, the Sam label in the host composer receives the active highlight; the redundant conversation-card participant/mode/floor row is omitted so the transcript gets more vertical space. An optional browser-local **Turn reminder** speaks one short localized prompt at that transition. It heuristically prefers a feminine installed voice when Momo spoke last and a masculine installed voice when Bobby spoke last, with pitch and default-voice fallbacks because browser voice metadata does not expose standardized gender. Sam can disable the reminder in the host panel; the preference persists in local storage, and no provider call is made. Sam can select **Voice input** while holding the floor or **Interrupt and speak** during AI generation. Recording, transcription, editable-draft, and submission states remain visually distinct.
 
 Active Topic Digest and Conversation Digest jobs appear as compact temporary **System** cards inside the transcript (“Topic summarizing…” or “Conversation summarizing…”). These cards are derived only from the current frontend job list: they are not posted as messages, do not enter recent-round context or digest history, are absent from exports, and disappear automatically when the job completes or fails.
 
@@ -131,9 +131,11 @@ Each live request is assembled in this order:
 
 The complete transcript and full digest history stay in SQLite for final synthesis and export. Older digest history is not sent with each live turn. This keeps context focused and response latency manageable.
 
-Language selection is persisted as `conversation_language` plus `language_source`. English is the source-processing default; detection changes it only when script or distinctive language markers provide clear non-English evidence. Explicit requests from Sam override the source language and cannot subsequently be replaced by another upload. An actual mid-session change queues one deduplicated Topic Digest refresh, and the same constrained tag is appended to live dialogue and all later source, topic, conversation, final, and one-page synthesis tasks. JSON keys stay stable while visible string values use the selected language.
+Language selection is persisted as `conversation_language` plus `language_source`. English is the source-processing default; detection changes it only when script or distinctive language markers provide clear non-English evidence. Explicit requests from Sam override the source language and cannot subsequently be replaced by another upload. An actual mid-session change force-refreshes one deduplicated Topic Digest job; any older-language job is marked stale and cannot overwrite the new-language digest. The same constrained tag is appended to live dialogue and all later source, topic, conversation, final, and one-page synthesis tasks. JSON keys stay stable while visible string values use the selected language.
 
 If Sam explicitly asks to check, verify, double-check, review, or return to the original source, PDF, document, article, or file, the responding AI segment enters source-verification mode. It retrieves up to five relevant indexed passages, labels each as an untrusted original-source excerpt with filename/page/evidence ID where available, and asks the AIs to report any mismatch with the digest without claiming more than the excerpt supports. The verification segment uses the configured single- or multi-document source token and timeout multipliers. Verification mode ends with that segment; an ordinary Continue action returns to digest-only context.
+
+Natural language language controls include “let's talk in English,” “let's discuss in German,” “change the conversation language to French,” “switch to Japanese for the rest,” and “continue in Spanish.” Ordinary topical mentions such as “the Chinese cohort” are not treated as a language switch.
 
 Each prompt section also has an explicit input ceiling. Oversized material is visibly clipped for that request while the complete stored record remains unchanged. Provider-specific token estimation is a planned refinement.
 
@@ -182,7 +184,7 @@ Ending the roundtable first coordinates with active generation so interrupted te
 - Direct mention routing, random undirected routing, and independent first answers
 - Sam-first response logic and host-deferred continuation
 - Scheduled human checkpoints
-- Concise academic debate prompts, labeled background knowledge, and line-separated `Inference:` statements for readable provenance
+- Concise academic debate prompts, a separate `Background knowledge:` line in every AI contribution, and line-separated `Inference:` statements for readable provenance
 - English-default source processing, clear-signal non-English initialization, Sam-authoritative conversation-language switching, and per-task output-language enforcement for all later live and synthesis work
 - Topic, conversation, requested, periodic, and final digests
 - Five-round raw-history retention in every live request
@@ -191,7 +193,7 @@ Ending the roundtable first coordinates with active generation so interrupted te
 - Fixed rolling transcript with visible host controls
 - Sam composer highlight while the human floor is active
 - Manually stopped Sam voice capture with no duration cutoff, AI transcription with restrained topic-aware correction, visible recording/transcription states, edit-before-submit behavior, and interrupt-then-speak support
-- Highlighted top-right Sam-floor indicator
+- Highlighted Sam label in the host composer when the human floor is active; the redundant conversation-card header row is removed
 - Provider health and background-job progress
 - Ephemeral, non-persistent System transcript cards for topic/conversation digestion
 - Blue closeout progress notices for final and one-page summary stages
@@ -232,9 +234,9 @@ This is still a local MVP, not an internet-facing secure service. Authentication
 
 As of the latest verification run:
 
-- 94 backend tests pass.
+- 98 backend tests pass.
 - The suite covers rounds, latest-Sam and recent-history retention, explicit recap intent, multi-round voice budgets and deadlines, mention routing, greeting exclusion, synthesis-only Summary Digest export, explicit archive digest records, latest one-page selection, FTS locators, strict one-session purging, host-deferred continuation, recap-job deduplication, first-token timeout recovery, immediate stalled-stream cancellation with partial-text retention, restart reconciliation, session-task cancellation, bounded prompt context, post-close immutability, close/interrupt lifecycle safety, and cancellation of both final and one-page summary work.
-- All 11 frontend tests and the production build pass. Frontend coverage includes actual per-turn model-route display, English and translated provenance formatting, ephemeral digest and timeout-retry cards, Research/Verification closeout status copy, landing-page multi-source staging, voice privacy/review states, localized turn-reminder copy, last-speaker voice selection, and the accessible reminder toggle.
+- All 13 frontend tests and the production build pass. Frontend coverage includes actual per-turn model-route display, English and translated provenance formatting, separate background-knowledge styling, ephemeral digest and timeout-retry cards, Research/Verification closeout status copy, landing-page ordering and accent styling, landing-page multi-source staging, voice privacy/review states, localized turn-reminder copy, last-speaker voice selection, and the accessible reminder toggle.
 - Live provider checks remain optional because they consume external API capacity. The historical 2026-07-21 approved live audit confirmed the routes configured at that time:
   - Momo: `gpt-5.6-luna` (OpenAI Responses), configured and reachable.
   - Bobby: `gemini-3.1-flash-lite` (Google OpenAI-compatible Chat Completions), configured and reachable.

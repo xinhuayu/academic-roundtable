@@ -65,9 +65,9 @@ def test_explicit_sam_language_switch_updates_the_session_before_routing(tmp_pat
     session = db.create_session("Cognitive trajectories", "Compare interpretations", 2, False, False)
     service = RoundtableService(main_module.settings, db, main_module.adapters)
     topic_refreshes: list[tuple[str, str]] = []
-    service.request_topic_digest = lambda session_id, reason="requested": (
+    service.request_topic_digest = lambda session_id, reason="requested", force_refresh=False: (
         topic_refreshes.append((session_id, reason))
-        or {"id": "topic-language-refresh", "kind": "topic_digest", "status": "queued"}
+        or {"id": f"topic-language-refresh-{len(topic_refreshes)}", "kind": "topic_digest", "status": "queued"}
     )
     monkeypatch.setattr(main_module, "database", db)
     monkeypatch.setattr(main_module, "service", service)
@@ -88,7 +88,25 @@ def test_explicit_sam_language_switch_updates_the_session_before_routing(tmp_pat
     assert updated["conversation_language"] == "Chinese"
     assert updated["language_source"] == "sam"
     assert topic_refreshes == [(session["id"], "conversation_language_changed")]
-    assert response.json()["topic_digest_job"]["id"] == "topic-language-refresh"
+    assert response.json()["topic_digest_job"]["id"] == "topic-language-refresh-1"
+
+    second_response = client.post(
+        f"/api/sessions/{session['id']}/messages",
+        json={
+            "content": "Please continue the conversation in Spanish.",
+            "target": "roundtable",
+            "continue_rounds": 2,
+        },
+    )
+
+    assert second_response.status_code == 200
+    assert second_response.json()["conversation_language"] == "Spanish"
+    assert db.get_session(session["id"])["conversation_language"] == "Spanish"
+    assert '<output_language name="Spanish">' in service.build_context(db.get_session(session["id"]), "Momo", 0).system
+    assert topic_refreshes == [
+        (session["id"], "conversation_language_changed"),
+        (session["id"], "conversation_language_changed"),
+    ]
 
 
 def test_voice_endpoint_returns_editable_text_without_persisting_audio(tmp_path, monkeypatch) -> None:

@@ -5,6 +5,16 @@ import { buildCloseoutProgress, buildDigestStatusMessages, FormattedMessageConte
 
 
 describe("FormattedMessageContent", () => {
+  it("renders a plain Background label with the italic background style", () => {
+    const markup = renderToStaticMarkup(
+      <FormattedMessageContent text="Background: A confidence interval describes sampling uncertainty.\n\nInference: The estimate should be interpreted cautiously." />,
+    );
+
+    expect(markup).toContain('class="background-knowledge"');
+    expect(markup).toContain("confidence interval");
+    expect(markup).toContain('class="provenance-block inference-block"');
+  });
+
   it("starts an inference label in its own block", () => {
     const markup = renderToStaticMarkup(
       <FormattedMessageContent text="The estimate is associated with the outcome. Inference: Causality requires additional assumptions." />,
@@ -69,6 +79,23 @@ describe("buildCloseoutProgress", () => {
     expect(progress.title).toContain("Momo is generating");
     expect(progress.title).toContain("Verification mode");
     expect(progress.detail).toContain("Checking claims");
+  });
+});
+
+describe("NewSessionForm", () => {
+  it("places Start roundtable after the learning goal and before mode selection", () => {
+    const markup = renderToStaticMarkup(
+      <NewSessionForm onCreate={() => undefined} busy={false} documentDependencies={null} />,
+    );
+
+    const goalIndex = markup.indexOf("Sam’s learning goal");
+    const startIndex = markup.indexOf("Start roundtable");
+    const modeIndex = markup.indexOf("AI LLM mode");
+
+    expect(goalIndex).toBeGreaterThanOrEqual(0);
+    expect(startIndex).toBeGreaterThan(goalIndex);
+    expect(modeIndex).toBeGreaterThan(startIndex);
+    expect(markup).toContain('class="button button-secondary landing-start-button"');
   });
 });
 
