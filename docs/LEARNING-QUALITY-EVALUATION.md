@@ -11,7 +11,7 @@
 
 The harness tests whether Academic Roundtable is delivering its governing outcome: **deep conversations for better learning**. It is designed for lean prompt and orchestration experiments, not for ranking models in the abstract.
 
-The session now supports three model profiles: **Fast** (the latency baseline), **Research** (configured flagship models with medium reasoning), and **Verification** (flagship models with high reasoning and longer deadlines). Treat the profile as an experimental factor: compare profiles on the same fixture, topic, source policy, and rounds, and record latency and visible word count alongside learning ratings. Do not interpret a larger token allowance as evidence of better learning.
+The session now supports three model profiles: **Fast** (the latency baseline), **Research** (Luna `xhigh` for Momo and Gemini 3.6 Flash `medium` for common deeper exploration), and **Verification** (Sol `high` and Gemini `high` for methodological checking with longer deadlines). Treat the profile as an experimental factor: compare profiles on the same fixture, topic, source policy, and rounds, and record latency and visible word count alongside learning ratings. Do not interpret a larger token allowance or higher reasoning setting as evidence of better learning.
 
 The process deliberately separates two kinds of evidence:
 

@@ -98,9 +98,9 @@ class Settings:
     source_multi_doc_timeout_multiplier: float = 2.0
     # Research profiles are deliberately separate from the provider defaults so
     # a session can opt into deeper models without changing the fast baseline.
-    research_momo_model: str = "gpt-5.6-sol"
+    research_momo_model: str = "gpt-5.6-luna"
     research_bobby_model: str = "gemini-3.6-flash"
-    research_momo_reasoning_effort: str = "medium"
+    research_momo_reasoning_effort: str = "xhigh"
     research_bobby_reasoning_effort: str = "medium"
     verification_momo_model: str = "gpt-5.6-sol"
     verification_bobby_model: str = "gemini-pro-latest"
@@ -208,9 +208,9 @@ def get_settings() -> Settings:
         bobby_live_max_output_tokens=max(
             250, env_int("BOBBY_LIVE_MAX_OUTPUT_TOKENS", 1400)
         ),
-        research_momo_model=os.getenv("RESEARCH_MOMO_MODEL", "gpt-5.6-sol"),
+        research_momo_model=os.getenv("RESEARCH_MOMO_MODEL", "gpt-5.6-luna"),
         research_bobby_model=os.getenv("RESEARCH_BOBBY_MODEL", "gemini-3.6-flash"),
-        research_momo_reasoning_effort=os.getenv("RESEARCH_MOMO_REASONING_EFFORT", "medium"),
+        research_momo_reasoning_effort=os.getenv("RESEARCH_MOMO_REASONING_EFFORT", "xhigh"),
         research_bobby_reasoning_effort=os.getenv("RESEARCH_BOBBY_REASONING_EFFORT", "medium"),
         verification_momo_model=os.getenv("VERIFICATION_MOMO_MODEL", "gpt-5.6-sol"),
         verification_bobby_model=os.getenv("VERIFICATION_BOBBY_MODEL", "gemini-pro-latest"),

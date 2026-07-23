@@ -129,14 +129,14 @@ describe("TranscriptMessage", () => {
         content: "A research-mode contribution.",
         status: "complete",
         target: "roundtable",
-        metadata: { model: "gpt-5.6-sol", profile: "research", reasoning_effort: "medium" },
+        metadata: { model: "gpt-5.6-luna", profile: "research", reasoning_effort: "xhigh" },
         created_at: "2026-07-22T00:00:00Z",
       }} />,
     );
 
-    expect(markup).toContain("gpt-5.6-sol");
+    expect(markup).toContain("gpt-5.6-luna");
     expect(markup).toContain("research");
-    expect(markup).toContain("medium reasoning");
+    expect(markup).toContain("xhigh reasoning");
   });
 
   it("renders an automatic timeout retry as an ephemeral System notice", () => {

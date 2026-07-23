@@ -387,9 +387,9 @@ def test_research_profile_selects_flagship_models_and_expanded_budget(tmp_path: 
     service = RoundtableService(settings, db, registry)
     momo_request = service.build_context(db.get_session(session["id"]), "Momo", 0)
     bobby_request = service.build_context(db.get_session(session["id"]), "Bobby", 1)
-    assert momo_request.model == "gpt-5.6-sol"
+    assert momo_request.model == "gpt-5.6-luna"
     assert bobby_request.model == "gemini-3.6-flash"
-    assert momo_request.reasoning_effort == "medium"
+    assert momo_request.reasoning_effort == "xhigh"
     assert bobby_request.reasoning_effort == "medium"
     assert momo_request.max_output_tokens == 2200
     assert bobby_request.max_output_tokens == 12288
@@ -401,7 +401,7 @@ def test_research_profile_selects_flagship_models_and_expanded_budget(tmp_path: 
     assert "140-220 words" in bobby_request.system
     research_meta = next(item for item in service.profile_metadata() if item["id"] == "research")
     assert research_meta["participants"]["Momo"] == {
-        "model": "gpt-5.6-sol", "reasoning_effort": "medium"
+        "model": "gpt-5.6-luna", "reasoning_effort": "xhigh"
     }
     assert research_meta["participants"]["Bobby"] == {
         "model": "gemini-3.6-flash", "reasoning_effort": "medium"
@@ -419,13 +419,13 @@ def test_research_profile_selects_flagship_models_and_expanded_budget(tmp_path: 
     events = asyncio.run(collect())
     starts = [event for event in events if event["type"] == "message_start"]
     assert {(event["speaker"], event["model"], event["reasoning_effort"]) for event in starts} == {
-        ("Momo", "gpt-5.6-sol", "medium"),
+        ("Momo", "gpt-5.6-luna", "xhigh"),
         ("Bobby", "gemini-3.6-flash", "medium"),
     }
     ai_messages = [message for message in db.list_messages(session["id"]) if message["speaker"] in {"Momo", "Bobby"}]
     assert all(message["metadata"]["profile"] == "research" for message in ai_messages)
     assert {message["metadata"]["model"] for message in ai_messages} == {
-        "gpt-5.6-sol", "gemini-3.6-flash"
+        "gpt-5.6-luna", "gemini-3.6-flash"
     }
 
 
@@ -1343,8 +1343,8 @@ def test_closeout_runs_momo_and_bobby_summaries_concurrently(tmp_path: Path) -> 
     assert db.get_session(session["id"])["state"] == "CLOSED"
     assert captured["Momo"].system != captured["Bobby"].system
     assert "independently" in captured["Bobby"].messages[0]["content"]
-    assert captured["Momo"].model == "gpt-5.6-sol"
-    assert captured["Momo"].reasoning_effort == "medium"
+    assert captured["Momo"].model == "gpt-5.6-luna"
+    assert captured["Momo"].reasoning_effort == "xhigh"
     assert captured["Bobby"].model == "gemini-3.6-flash"
     assert captured["Bobby"].reasoning_effort == "medium"
     assert captured["Bobby"].max_output_tokens == 12288

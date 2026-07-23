@@ -274,8 +274,8 @@ class RoundtableService:
     ) -> dict[str, Any]:
         """Resolve model, reasoning, and budget policy for one generation.
 
-        Fast is the stable default. Research selects the configured flagship
-        pair. Verification is automatically selected for an explicit request
+        Fast is the stable default. Research selects the configured economical
+        deep-reasoning pair. Verification is automatically selected for an explicit request
         to reopen the original source and raises reasoning and timeout budgets.
         Raw source excerpts remain gated by ``source_verification`` itself.
         """
@@ -321,10 +321,15 @@ class RoundtableService:
             timeout_multiplier = self.settings.live_turn_timeout_multiplier
             live_instruction = "Fast mode: make one compact contribution using the ordinary 60-110-word target."
             verbosity = "low"
-        # Digests have always used at least medium reasoning. Verification and
-        # source-heavy jobs use high reasoning; live turns preserve the profile.
+        # Background jobs keep the selected profile's reasoning policy. Fast
+        # digests use medium, Research preserves its configured per-participant
+        # setting (Luna xhigh for Momo / Gemini medium for Bobby), and
+        # Verification always uses high for methodological checking.
         if task != "live":
-            reasoning = "high" if profile == "verification" else "medium"
+            if profile == "verification":
+                reasoning = "high"
+            elif profile == "fast":
+                reasoning = "medium"
         if speaker == "Bobby" and self._is_gemini_model(model):
             if profile == "verification" or reasoning == "high":
                 timeout_multiplier *= self.settings.gemini_verification_timeout_multiplier
@@ -362,7 +367,7 @@ class RoundtableService:
             {
                 "id": "research",
                 "label": "Research mode",
-                "description": "Flagship models with medium reasoning, deeper 140-220-word turns, and enlarged budgets.",
+                "description": "Luna xhigh for Momo and Gemini medium for Bobby, deeper 140-220-word turns, and enlarged budgets.",
                 "participants": {
                     "Momo": {
                         "model": self.settings.research_momo_model,
