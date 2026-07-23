@@ -56,6 +56,7 @@ The project uses short, testable increments. It does not add multi-user or cloud
 ### 4. Minimal document grounding — complete
 
 - PDF, TXT, and Markdown upload with 30 MB limit
+- Landing-page source selections remain visible with per-file queued status, and the conversation transcript shows an ephemeral System card while each document digest is processing
 - PDF ingestion now uses PyMuPDF + pdfplumber for table detection and figure-object extraction hints
 - Page/section extraction and hierarchical source digestion
 - Table extraction prefers structural cues from pdfplumber and PyMuPDF, with pypdf fallback

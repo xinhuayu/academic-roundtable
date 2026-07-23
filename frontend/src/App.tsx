@@ -179,11 +179,15 @@ function ProfileChoice({
 
 export function buildDigestStatusMessages(jobs: Job[]): Message[] {
   return jobs
-    .filter((job) => ["topic_digest", "conversation_digest"].includes(job.kind) && ["queued", "running"].includes(job.status))
+    .filter((job) => ["document_digest", "topic_digest", "conversation_digest"].includes(job.kind) && ["queued", "running"].includes(job.status))
     .map((job) => ({
       id: `ephemeral-${job.id}`,
       speaker: "System",
-      content: job.kind === "topic_digest" ? "Topic summarizing…" : "Conversation summarizing…",
+      content: job.kind === "document_digest"
+        ? "Source document processing…"
+        : job.kind === "topic_digest"
+          ? "Topic summarizing…"
+          : "Conversation summarizing…",
       status: "working",
       target: "roundtable",
       metadata: { kind: "ephemeral_digest_status", job_id: job.id },
@@ -320,14 +324,20 @@ export function NewSessionForm({
   onCreate,
   busy,
   documentDependencies,
+  profile: controlledProfile,
+  onProfileChange,
 }: {
   onCreate: (topic: string, goal: string, profile: ConversationProfile, sources: File[]) => void;
   busy: boolean;
   documentDependencies: DocumentDependencies | null;
+  profile?: ConversationProfile;
+  onProfileChange?: (profile: ConversationProfile) => void;
 }) {
   const [topic, setTopic] = useState("");
   const [goal, setGoal] = useState("Explore the topic deeply, compare explanations, and identify what remains uncertain.");
-  const [profile, setProfile] = useState<ConversationProfile>("fast");
+  const [localProfile, setLocalProfile] = useState<ConversationProfile>("fast");
+  const profile = controlledProfile ?? localProfile;
+  const setProfile = onProfileChange ?? setLocalProfile;
   const [sources, setSources] = useState<File[]>([]);
   const pdfReady = Boolean(documentDependencies?.pymupdf && documentDependencies?.pdfplumber);
   const blockedPdf = sources.some((file) => file.name.toLowerCase().endsWith(".pdf")) && documentDependencies !== null && !pdfReady;
@@ -365,7 +375,7 @@ export function NewSessionForm({
           <span>+ Select sources</span>
           <small>PDF, TXT, or Markdown · 30 MB each</small>
         </label>
-        {sources.length > 0 && <div className="landing-source-list">{sources.map((file) => <div key={`${file.name}-${file.size}-${file.lastModified}`}><span><strong>{file.name}</strong><small>{Math.max(1, Math.round(file.size / 1024)).toLocaleString()} KB · queued after Start</small></span><button type="button" onClick={() => setSources((current) => current.filter((item) => item !== file))} aria-label={`Remove ${file.name}`}>Remove</button></div>)}</div>}
+        {sources.length > 0 && <div className="landing-source-list" aria-live="polite" aria-label="Selected source documents">{sources.map((file) => <div key={`${file.name}-${file.size}-${file.lastModified}`}><span><strong>{file.name}</strong><small>{Math.max(1, Math.round(file.size / 1024)).toLocaleString()} KB · selected; processing starts after Start</small></span><button type="button" onClick={() => setSources((current) => current.filter((item) => item !== file))} aria-label={`Remove ${file.name}`}>Remove</button></div>)}</div>}
         {blockedPdf && <div className="dependency-warning"><strong>PDF selection needs setup:</strong> install PyMuPDF and pdfplumber, then restart the app. TXT and Markdown remain available.</div>}
       </section>
       <p className="form-hint">Research and verification modes allow more model work and may take longer. Ordinary live turns reopen source excerpts only when Sam explicitly asks; closeout uses bounded extracted text rather than the original files.</p>
@@ -478,6 +488,7 @@ function App() {
   const [health, setHealth] = useState<ProviderHealth[]>([]);
   const [documentDependencies, setDocumentDependencies] = useState<DocumentDependencies | null>(null);
   const [appMetadata, setAppMetadata] = useState<AppMetadata | null>(null);
+  const [landingProfile, setLandingProfile] = useState<ConversationProfile>("fast");
   const [activeModelRoutes, setActiveModelRoutes] = useState<Partial<Record<"Momo" | "Bobby", ActiveModelRoute>>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -578,7 +589,7 @@ function App() {
       viewport.scrollTop = viewport.scrollHeight;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [session?.messages, busy, session?.jobs.filter((job) => ["topic_digest", "conversation_digest"].includes(job.kind) && ["queued", "running"].includes(job.status)).length]);
+  }, [session?.messages, busy, session?.jobs.filter((job) => ["document_digest", "topic_digest", "conversation_digest"].includes(job.kind) && ["queued", "running"].includes(job.status)).length]);
 
   useEffect(() => {
     if (!busy) return;
@@ -1035,7 +1046,7 @@ function App() {
     .find((digest) => digest.kind === "one_page" && typeof digest.digest?.content === "string")?.digest?.content;
   const closeoutSummaryAvailable = session?.state === "CLOSED" && !finalSummary && !finalSummaryJob;
   const closeoutRoute = appMetadata?.conversation_profiles?.find((profile) => profile.id === closeoutProfile);
-  const displayedProfile = activeModelRoutes.Momo?.profile || activeModelRoutes.Bobby?.profile || session?.conversation_profile || "fast";
+  const displayedProfile = activeModelRoutes.Momo?.profile || activeModelRoutes.Bobby?.profile || session?.conversation_profile || landingProfile;
   const configuredProfile = appMetadata?.conversation_profiles?.find((profile) => profile.id === displayedProfile);
   const displayedRoutes = (["Momo", "Bobby"] as const).reduce((routes, participant) => {
     const live = activeModelRoutes[participant];
@@ -1057,11 +1068,12 @@ function App() {
           <span><strong>Academic Roundtable</strong><small>deep conversations for better learning</small></span>
         </div>
         <div className="top-participants">
-          {health.map((item) => <Participant key={item.participant} health={item} route={session && (item.participant === "Momo" || item.participant === "Bobby") ? displayedRoutes[item.participant] : undefined} />)}
+          {health.map((item) => <Participant key={item.participant} health={item} route={(item.participant === "Momo" || item.participant === "Bobby") ? displayedRoutes[item.participant] : undefined} />)}
           <div className="participant sam-participant"><span className="status-dot status-ready" /><span><strong>Sam</strong><small>academic host</small></span></div>
         </div>
         <div className="session-nav">
           {session && !concluded && <div className="topic-mode-control header-mode-control"><span>AI LLM mode</span><ProfileChoice value={session.conversation_profile} onChange={updateConversationProfile} disabled={busy} compact /></div>}
+          {!session && <div className="landing-mode-indicator" title="Selected mode for the next roundtable"><span>AI LLM mode</span><strong>{profileMeta[landingProfile].label}</strong></div>}
           {session && !concluded
             ? <button className="button button-stop" onClick={endSession} disabled={voiceState !== "idle"}>End</button>
             : <span className="session-status">{session ? "Session closeout" : "New roundtable"}</span>}
@@ -1071,7 +1083,7 @@ function App() {
       {!session ? (
         <main className="empty-stage">
           <img className="hero-logo" src="/academic-roundtable-logo.png" alt="Momo, Bobby, and Sam in conversation" />
-          <div className="empty-copy"><div className="eyebrow">New inquiry</div><h1>Put a difficult idea at the center of the table.</h1><p>Momo and Bobby debate the substance. Sam questions, judges, and guides where the learning goes next.</p><NewSessionForm onCreate={requestLandingSession} busy={busy} documentDependencies={documentDependencies} /></div>
+          <div className="empty-copy"><div className="eyebrow">New inquiry</div><h1>Put a difficult idea at the center of the table.</h1><p>Momo and Bobby debate the substance. Sam questions, judges, and guides where the learning goes next.</p><NewSessionForm onCreate={requestLandingSession} busy={busy} documentDependencies={documentDependencies} profile={landingProfile} onProfileChange={setLandingProfile} /></div>
           {pendingLandingSession && (
             <div className="new-session-confirm" role="dialog" aria-labelledby="landing-reset-title" aria-modal="true">
               <div>

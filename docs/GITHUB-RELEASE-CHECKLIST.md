@@ -30,7 +30,7 @@
 ## Latest prepared-archive verification (2026-07-22)
 
 - [x] 98 backend tests passed.
-- [x] Frontend Vitest suite passed (13 tests, including actual model-route labels, translated and separate background-knowledge provenance labels, ephemeral digest and timeout-retry messages, Research/Verification Momo/Bobby closeout status, landing-page ordering and accent styling, landing-page multi-source staging, Sam voice privacy/review states, and the localized last-speaker Turn reminder control).
+- [x] Frontend Vitest suite passed (14 tests, including actual model-route labels, translated and separate background-knowledge provenance labels, ephemeral source-document/topic/conversation digestion and timeout-retry messages, Research/Verification Momo/Bobby closeout status, landing-page mode indicator and source-selection status, landing-page ordering and accent styling, landing-page multi-source staging, Sam voice privacy/review states, and the localized last-speaker Turn reminder control).
 - [x] Frontend production build passed.
 - [x] Candidate source files passed checks for common OpenAI, Google, and Anthropic key formats, private-key blocks, and developer-specific absolute paths.
 - [x] Archive entry inspection found no `.env.local`, runtime database, uploaded source, transcript, log, cache, dependency directory, or compiled build output.

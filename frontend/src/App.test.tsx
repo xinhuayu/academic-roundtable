@@ -44,7 +44,7 @@ describe("buildDigestStatusMessages", () => {
       { id: "document-1", kind: "document_digest", status: "running", progress: 0.5, detail: "Working" },
     ]);
 
-    expect(messages).toHaveLength(1);
+    expect(messages).toHaveLength(2);
     expect(messages[0]).toMatchObject({
       id: "ephemeral-topic-1",
       speaker: "System",
@@ -52,6 +52,12 @@ describe("buildDigestStatusMessages", () => {
       temporary: true,
       metadata: { kind: "ephemeral_digest_status", job_id: "topic-1" },
     });
+    expect(messages[1]).toMatchObject({
+      id: "ephemeral-document-1",
+      speaker: "System",
+      temporary: true,
+    });
+    expect(messages[1].content).toContain("Source document processing");
   });
 });
 
@@ -96,6 +102,21 @@ describe("NewSessionForm", () => {
     expect(startIndex).toBeGreaterThan(goalIndex);
     expect(modeIndex).toBeGreaterThan(startIndex);
     expect(markup).toContain('class="button button-secondary landing-start-button"');
+  });
+
+  it("supports a controlled landing mode selection", () => {
+    const markup = renderToStaticMarkup(
+      <NewSessionForm
+        onCreate={() => undefined}
+        busy={false}
+        documentDependencies={null}
+        profile="research"
+        onProfileChange={() => undefined}
+      />,
+    );
+
+    expect(markup).toContain("Research");
+    expect(markup).toContain("Source documents · optional");
   });
 });
 
