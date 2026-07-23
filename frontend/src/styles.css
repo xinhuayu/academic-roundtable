@@ -102,9 +102,10 @@ select { padding:7px 27px 7px 9px; border:1px solid var(--line); border-radius:7
 .sam-control-row .quick-actions button{min-width:58px;padding:7px 6px}
 .sam-control-row .composer-submit{min-width:70px}
 .composer textarea{min-height:72px;padding:8px 10px}
-.segment-controls{margin-top:0;display:flex;align-items:center;gap:8px}
-.segment-controls label{flex:1 1 190px}
+.segment-controls{margin-top:0;display:flex;align-items:center;gap:8px;flex-wrap:nowrap}
+.segment-controls label{flex:0 1 220px;display:flex;align-items:center;gap:7px;white-space:nowrap}
 .segment-controls label select{margin-top:0;width:auto;min-width:150px}
-.segment-controls .button-secondary{width:auto}
-@media(max-width:900px){.host-panel{max-height:330px}.sam-control-row{flex-wrap:wrap}.sam-control-row .voice-input-row{flex:1 1 100%}.sam-control-row .composer-actions{width:100%;justify-content:flex-end}.segment-controls{flex-wrap:wrap}.segment-controls label{flex:1 1 100%}}
+.segment-actions{display:flex;align-items:center;gap:7px;min-width:0}
+.segment-actions .button{white-space:nowrap}
+@media(max-width:900px){.host-panel{max-height:330px}.sam-control-row{flex-wrap:wrap}.sam-control-row .voice-input-row{flex:1 1 100%}.sam-control-row .composer-actions{width:100%;justify-content:flex-end}.segment-controls{flex-wrap:wrap}.segment-controls label{flex:1 1 100%}.segment-actions{width:100%}.segment-actions .button{flex:1}}
 @media(max-width:680px){.workspace{width:calc(100% - 24px)}.conversation-card{height:auto;min-height:0}.conversation-layout{overflow:visible}.transcript{min-height:52vh;max-height:none}.host-panel{max-height:none;padding:9px 10px}.host-panel-heading{flex-wrap:wrap}.sam-address-control{order:5;flex:1 1 100%;margin-left:0}.sam-address-control>span{display:none}.host-panel-heading .language-indicator{margin-left:0}.host-panel-heading .voice-reminder-toggle{margin-left:auto}.composer-topline label{display:flex;flex-wrap:wrap}.composer-topline>span{display:none}.sam-control-row .composer-actions{justify-content:stretch}.sam-control-row .quick-actions{flex:1}.sam-control-row .quick-actions button{flex:1;min-width:0}.sam-control-row .composer-submit{flex:0 0 72px}.composer textarea{min-height:82px}.segment-controls label select{width:100%}}

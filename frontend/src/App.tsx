@@ -1219,8 +1219,10 @@ function App() {
                 </form>
                 <div className="segment-controls">
                   <label>AI rounds <select value={automaticRoundVariation ? "auto" : String(rounds)} onChange={(event) => { const value = event.target.value; setAutomaticRoundVariation(value === "auto"); if (value !== "auto") setRounds(Number(value)); }} disabled={busy}><option value="auto">Auto · usually 2</option>{[2, 3, 4, 5].map((value) => <option key={value} value={value}>{value} fixed</option>)}</select></label>
-                  <button className="button button-stop" onClick={interrupt} disabled={!busy}>Interrupt AI</button>
-                  <button className="button button-secondary" onClick={() => startDiscussion(undefined, undefined, true)} disabled={busy || concluded || !hasSamDirection} title="Continue without answering the AI's question">Let them continue</button>
+                  <div className="segment-actions">
+                    <button className="button button-stop" onClick={interrupt} disabled={!busy}>Interrupt AI</button>
+                    <button className="button button-secondary" onClick={() => startDiscussion(undefined, undefined, true)} disabled={busy || concluded || !hasSamDirection} title="Continue without answering the AI's question">Let them continue</button>
+                  </div>
                 </div>
               </aside>
             </div>
