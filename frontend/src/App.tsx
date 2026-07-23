@@ -305,6 +305,7 @@ export function TranscriptMessage({ message }: { message: Message }) {
   const model = typeof message.metadata.model === "string" ? message.metadata.model : "";
   const profile = typeof message.metadata.profile === "string" ? message.metadata.profile : "";
   const reasoning = typeof message.metadata.reasoning_effort === "string" ? message.metadata.reasoning_effort : "";
+  const displayContent = message.speaker === "Momo" ? message.content.replace(/\n{2,}/g, "\n") : message.content;
   return (
     <article className={`message message-${message.speaker.toLowerCase()} ${message.temporary ? "is-streaming" : ""} ${ephemeralSystem ? "is-ephemeral-system" : ""}`}>
       <div className="avatar" aria-hidden="true">{meta.monogram}</div>
@@ -313,7 +314,7 @@ export function TranscriptMessage({ message }: { message: Message }) {
           <div><strong>{message.speaker}</strong><span>{ephemeralSystem ? systemSubtitle : meta.subtitle}</span>{model && <span className="message-model-route">{model} · {profile || "fast"} · {reasoning || "default"} reasoning</span>}</div>
           {message.status !== "complete" && <Badge tone="warning">{message.status}</Badge>}
         </header>
-        <div className="message-content">{message.content ? <FormattedMessageContent text={message.content} breakSamQuestions={message.speaker === "Momo" || message.speaker === "Bobby"} /> : <span className="thinking">thinking…</span>}</div>
+        <div className={`message-content message-content-${message.speaker.toLowerCase()}`}>{displayContent ? <FormattedMessageContent text={displayContent} breakSamQuestions={message.speaker === "Momo" || message.speaker === "Bobby"} /> : <span className="thinking">thinking…</span>}</div>
       </div>
     </article>
   );
@@ -1198,22 +1199,23 @@ function App() {
               </div>
 
               <aside className="host-panel" aria-label="Sam's host controls">
-                <div className="host-panel-heading"><div className="avatar">S</div><strong className={!busy && !concluded ? "sam-floor-name" : ""}>Sam</strong><span className="host-label-separator" aria-hidden="true">·</span><small>Guide the roundtable</small><VoiceReminderControl enabled={voiceReminderEnabled} supported={voiceReminderSupported} onChange={setVoiceReminderEnabled} /></div>
+                <div className="host-panel-heading"><div className="avatar">S</div><strong className={!busy && !concluded ? "sam-floor-name" : ""}>Sam</strong><span className="host-label-separator" aria-hidden="true">·</span><small>Guide the roundtable</small><div className="sam-address-control"><label>Address <select value={target} onChange={(event) => setTarget(event.target.value)}><option value="roundtable">Automatic</option><option value="Momo">Momo</option><option value="Bobby">Bobby</option><option value="both">Both independently</option></select></label><span>Names and @mentions override</span></div><span className="language-indicator" aria-label={`Conversation language: ${session.conversation_language || "English"}`}><span>Language</span><strong>{session.conversation_language || "English"}</strong></span><VoiceReminderControl enabled={voiceReminderEnabled} supported={voiceReminderSupported} onChange={setVoiceReminderEnabled} /></div>
                 <form onSubmit={sendMessage} className={`composer ${(!busy && !concluded) || voiceState !== "idle" ? "sam-has-floor" : ""} ${voiceState !== "idle" ? `voice-${voiceState}` : ""}`}>
-                  <div className="composer-topline"><label>Address <select value={target} onChange={(event) => setTarget(event.target.value)}><option value="roundtable">Automatic</option><option value="Momo">Momo</option><option value="Bobby">Bobby</option><option value="both">Both independently</option></select></label><span>Names and @mentions override</span></div>
-                  <VoiceInputControl
-                    state={voiceState}
-                    busy={busy}
-                    seconds={voiceSeconds}
-                    draftReady={voiceDraftReady}
-                    disabled={concluded || appMetadata?.voice_input?.configured === false}
-                    onToggle={() => voiceState === "recording" ? stopVoiceRecording() : startVoiceRecording()}
-                  />
-                  <div className="composer-actions">
-                    {!concluded && <div className="quick-actions"><button type="button" onClick={requestRecap} disabled={recapActive}>Recap</button><button type="button" onClick={() => { setComposerInputMethod("text"); setVoiceDraftReady(false); setComposer("What evidence would distinguish these explanations?"); }}>Evidence</button><button type="button" onClick={() => { setComposerInputMethod("text"); setVoiceDraftReady(false); setComposer(`Return to the active question: ${session.active_question}`); }}>Refocus</button></div>}
-                    <button type="submit" className="button button-primary composer-submit" disabled={concluded || voiceState !== "idle" || !composer.trim()}>{concluded ? "Ended" : "Answer"}</button>
+                  <div className="sam-control-row">
+                    <VoiceInputControl
+                      state={voiceState}
+                      busy={busy}
+                      seconds={voiceSeconds}
+                      draftReady={voiceDraftReady}
+                      disabled={concluded || appMetadata?.voice_input?.configured === false}
+                      onToggle={() => voiceState === "recording" ? stopVoiceRecording() : startVoiceRecording()}
+                    />
+                    <div className="composer-actions">
+                      {!concluded && <div className="quick-actions"><button type="button" onClick={requestRecap} disabled={recapActive}>Recap</button><button type="button" onClick={() => { setComposerInputMethod("text"); setVoiceDraftReady(false); setComposer("What evidence would distinguish these explanations?"); }}>Evidence</button><button type="button" onClick={() => { setComposerInputMethod("text"); setVoiceDraftReady(false); setComposer(`Return to the active question: ${session.active_question}`); }}>Refocus</button></div>}
+                      <button type="submit" className="button button-primary composer-submit" disabled={concluded || voiceState !== "idle" || !composer.trim()}>{concluded ? "Ended" : "Answer"}</button>
+                    </div>
                   </div>
-                  <textarea ref={composerInput} disabled={concluded || voiceState === "transcribing"} maxLength={24000} value={composer} onChange={(event) => setComposer(event.target.value)} placeholder={concluded ? "This session has concluded. The complete record is ready to export." : hasSamDirection ? "Ask, challenge, judge, or redirect…" : "Greet Momo and Bobby, then set the first scientific direction…"} rows={8} />
+                  <textarea ref={composerInput} disabled={concluded || voiceState === "transcribing"} maxLength={24000} value={composer} onChange={(event) => setComposer(event.target.value)} placeholder={concluded ? "This session has concluded. The complete record is ready to export." : hasSamDirection ? "Ask, challenge, judge, or redirect…" : "Greet Momo and Bobby, then set the first scientific direction…"} rows={3} />
                 </form>
                 <div className="segment-controls">
                   <label>AI rounds <select value={automaticRoundVariation ? "auto" : String(rounds)} onChange={(event) => { const value = event.target.value; setAutomaticRoundVariation(value === "auto"); if (value !== "auto") setRounds(Number(value)); }} disabled={busy}><option value="auto">Auto · usually 2</option>{[2, 3, 4, 5].map((value) => <option key={value} value={value}>{value} fixed</option>)}</select></label>
