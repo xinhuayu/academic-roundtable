@@ -8,9 +8,14 @@ Academic Roundtable is a local-first web application where two configurable LLM 
 
 Its guiding principle is **deep conversations for better learning**. The AIs debate in concise, readable turns; Sam can question, redirect, interrupt, request a recap, or let them continue for another bounded segment.
 
-> Status: audited lean MVP for local learning pilots. It is not yet designed for public hosting or multiple users.
+## See it in action
 
-> **Development baseline:** This `academic-roundtable-github-ready` copy is the canonical workspace for all future development, testing, documentation, and GitHub preparation. The earlier working folder is retained only as a historical source snapshot.
+<video controls width="100%" preload="metadata">
+  <source src="docs/academic-roundtable-demo-slideshow-voiceover.webm" type="video/webm">
+  <a href="docs/academic-roundtable-demo-slideshow-voiceover.webm">Watch the Academic Roundtable demonstration video</a>
+</video>
+
+> Status: audited lean MVP for local learning pilots. It is not yet designed for public hosting or multiple users.
 
 ## Why this project
 

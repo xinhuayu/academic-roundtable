@@ -27,7 +27,7 @@
 - Disable unnecessary workflow write permissions.
 - Keep Actions permissions read-only by default.
 
-## Latest prepared-archive verification (2026-07-22)
+## Latest prepared-archive verification (2026-07-23)
 
 - [x] 98 backend tests passed.
 - [x] Frontend Vitest suite passed (14 tests, including actual model-route labels, translated and separate background-knowledge provenance labels, ephemeral source-document/topic/conversation digestion and timeout-retry messages, Research/Verification Momo/Bobby closeout status, landing-page mode indicator and source-selection status, landing-page ordering and accent styling, landing-page multi-source staging, Sam voice privacy/review states, and the localized last-speaker Turn reminder control).
@@ -45,7 +45,7 @@
 - [x] Live timeout failures trigger one bounded retry with a temporary System notice, a retry-only deadline increase, partial-output reset, and no retry notice in persistence or digest context.
 - [x] An AI that exhausts its retry hands the turn to the other AI with a visible temporary System notice and a no-guessing recovery prompt; Sam receives the floor only if the fallback also fails.
 - [x] Ending a session creates no summary job. Closeout offers Research by default and Verification by explicit selection; only then does it create Momo's comprehensive Summary Digest and Bobby's independently prompted one-page learning summary concurrently from one frozen snapshot containing bounded extracted text, processed document digests, the Topic Digest, complete Conversation Digest history, and complete substantive transcript. Cancellation covers both jobs and each artifact retains fallback behavior.
-- [x] `academic-roundtable-github-submission-20260722-r2.zip` has 57 source entries and contains no forbidden local/runtime or generated Vite files. Record its final SHA-256 in the release handoff.
+- [x] `academic-roundtable-github-submission-20260723-r10.zip` contains the current sanitized source and demonstration video under `docs/`, with no forbidden local/runtime or generated Vite files. Record its final SHA-256 in the release handoff.
 - [x] Current frontend source includes explicit AI LLM mode buttons on the landing page and conversation header.
 
 - [x] The reusable live profile-switch simulation is included without a developer-specific PDF path; its 2026-07-21 run confirmed Fast, Research, and Verification routing with no provider errors or truncation.
