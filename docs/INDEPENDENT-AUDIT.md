@@ -259,6 +259,22 @@ Before pushing to GitHub, scan the working tree and repository history for secre
 
 The 2026-07-22 current-code audit reported Momo (`gpt-5.6-luna`, OpenAI Responses) and Bobby (`gemini-3.5-flash-lite`, Google-compatible Chat Completions) configured and reachable. Fast, Research, Verification, explicit original-source retrieval, concurrent closeout, every export, the unsaved-session warning, and final purge were exercised with an audit-created session. The app was left with no retained session.
 
+### 2026-07-23 live-provider simulation
+
+An independent real-provider run was completed against the running local server using the approved cognitive-trajectories PDF (792,401 bytes). No credentials or provider text were written to the report.
+
+| Stage | Effective route | Elapsed | Result |
+|---|---|---:|---|
+| PDF document digestion | Research background profile; Momo `gpt-5.6-luna`, `xhigh` | 183.895 s | Complete; 21,072-character processed digest |
+| Topic Digest | Research background profile | 18.051 s | Complete |
+| Ordinary Research segment | Momo Luna `xhigh`; Bobby Gemini 3.6 Flash `medium` | 42.271 s | 2 rounds, 4 complete messages, no errors |
+| Explicit original-source check | Momo Sol `high`; Bobby `gemini-pro-latest` `high` | 32.978 s | 1 completed round plus host checkpoint, no errors |
+| Research closeout synthesis | Research profile; concurrent Momo/Bobby jobs | 105.943 s | Both jobs complete; final 25,019 chars, one-page 6,089 chars |
+
+The live route metadata matched the configured profiles. Research messages contained Background knowledge and Inference sections, with visible lengths of 213–245 words; two turns exceeded the 220-word target slightly, a low-priority prompt-tightening opportunity rather than a truncation or reliability failure. Verification messages were 111–127 words and one correctly placed a question to Sam on a new line. No retry, provider error, partial response, malformed stream, or timeout occurred. The observed latency stayed well below the configured Research and Verification deadlines, and the audit session was purged with HTTP 204 after collection.
+
+Effective completion ceilings used by the code were also checked: Research Momo 2,200 tokens, Research Bobby at least 12,288 Gemini tokens for hidden thinking, source-verification Momo 2,400 tokens, and source-verification Bobby at least 32,768 Gemini tokens. These are provider ceilings, not visible prose targets. The result supports keeping Research as the routine source/digest and closeout mode while reserving Verification for explicit source checks or Sam-selected deep checking.
+
 ## GitHub readiness checklist
 
 - [x] GitHub-oriented README with setup, architecture, API, data, limitations, and contribution guidance

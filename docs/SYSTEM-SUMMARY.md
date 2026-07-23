@@ -255,6 +255,8 @@ As of the latest verification run:
 - All four exports returned 200: one-page 5,339 bytes, Summary Digest 25,307 bytes, readable transcript 83,428 bytes, and complete archive 544,369 bytes.
 - The local browser audit at 1280x720 found a no-scroll landing page with the Start control fully visible, correct closeout ordering and unsaved-session warning placement, no replacement characters, and no console warnings/errors.
 - The 2026-07-22 closeout regression simulation confirmed that **End** creates no summary job, Research is visibly preselected with its configured research routes, Verification changes both displayed routes only after selection, and archive/transcript/evaluation/new-table controls remain available without synthesis. The temporary session was purged afterward; that historical run predates the current Luna `xhigh` Research Momo default.
+- The 2026-07-23 real-provider simulation used the 792,401-byte cognitive-trajectories PDF. Document digestion completed in 183.895 seconds with a 21,072-character digest; Topic Digest in 18.051 seconds; two Research rounds in 42.271 seconds; an explicit original-source Verification segment in 32.978 seconds; and concurrent Research closeout in 105.943 seconds. All jobs and messages completed without retries, provider errors, truncation, or timeout. Research turns were 213–245 words, with two slight over-target turns retained as a low-priority prompt-tuning item.
+- The same simulation verified live metadata: Research used Momo `gpt-5.6-luna` `xhigh` and Bobby `gemini-3.6-flash` `medium`; explicit source checking used Momo `gpt-5.6-sol` `high` and Bobby `gemini-pro-latest` `high`. The temporary session was purged after collection.
 
 ### Note
 

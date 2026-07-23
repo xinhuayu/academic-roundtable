@@ -299,7 +299,7 @@ Optional live-provider smoke test (uses API capacity):
 .\.venv\Scripts\python.exe .\scripts\smoke_generation.py --participant Bobby
 ```
 
-The current deterministic backend suite contains 91 passing tests; the frontend suite contains 10 passing tests and the production build is verified. The built-in learning-quality workflow and optional developer comparison tools are documented in [docs/LEARNING-QUALITY-EVALUATION.md](docs/LEARNING-QUALITY-EVALUATION.md). See [docs/CRITICAL-REVIEW.md](docs/CRITICAL-REVIEW.md) for the prioritized agent-system review and [docs/INDEPENDENT-AUDIT.md](docs/INDEPENDENT-AUDIT.md) for the broader audit.
+The current deterministic backend suite contains 98 passing tests; the frontend suite contains 14 passing tests and the production build is verified. The built-in learning-quality workflow and optional developer comparison tools are documented in [docs/LEARNING-QUALITY-EVALUATION.md](docs/LEARNING-QUALITY-EVALUATION.md). See [docs/CRITICAL-REVIEW.md](docs/CRITICAL-REVIEW.md) for the prioritized agent-system review and [docs/INDEPENDENT-AUDIT.md](docs/INDEPENDENT-AUDIT.md) for the broader audit.
 
 ## Conversation memory
 
